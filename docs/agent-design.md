@@ -46,6 +46,204 @@ MailTidy 不是一组固定自动化规则，而应该像一个谨慎的助理�
 
 这些维度不是简单映射到文件夹，而是作为 Agent 决策时的上下文。例如同样是 GitHub 通知，有的用户认为是低优先级，有的用户认为 CI 失败必须当天处理。
 
+## 用户自定义规则
+
+后续需要把用户自定义规则单独抽成文件存放，例如：
+
+```text
+mailtidy/
+  custom_rules.py        自定义规则模型、解析、匹配和冲突处理
+  custom_rules_store.py  自定义规则的持久化存储
+```
+
+也可以根据项目复杂度合并为一个 `rules/` 目录：
+
+```text
+mailtidy/rules/
+  models.py      规则数据结构
+  parser.py      自然语言规则解析
+  matcher.py     邮件匹配与优先级判断
+  store.py       JSON/SQLite/云端存储
+```
+
+自定义规则必须和主流程解耦，不能散落在 `agent.py` 或 `policies.py` 里。Agent 在分类后、生成执行计划前，统一调用规则引擎进行覆盖、补充或降级。
+
+### 自然语言添加规则
+
+用户应该可以直接用自然语言告诉 Agent 自己的偏好，例如：
+
+```text
+ftx 的邮件都放好。
+```
+
+这类表达是模糊的，但 Agent 不能要求用户必须写成规则语法。它应该先理解用户意图，再在不确定时追问或采用保守策略。
+
+对“ftx 的邮件都放好”这句话，Agent 可以推断：
+
+- 规则对象：发件人、域名、主题或正文中包含 `ftx` 的邮件。
+- 用户意图：“放好”通常表示不要丢、不要归档到看不见的位置，而是整理到一个容易找到的地方。
+- 默认动作：打标签 `FTX` 或 `Important/FTX`，保留未读或不自动归档。
+- 风险判断：由于 `FTX` 可能涉及交易所、资产、法律、索赔或安全风险，应提高重要性。
+- 不确定点：用户是否希望加星、保持未读、进入财务/法务标签、是否需要摘要提醒。
+
+Agent 可以生成一个待确认规则：
+
+```json
+{
+  "source_text": "ftx 的邮件都放好",
+  "name": "ftx_mail_keep_organized",
+  "conditions": {
+    "sender_or_domain_contains": "ftx",
+    "subject_or_body_contains": "ftx"
+  },
+  "classification_override": "important",
+  "actions": [
+    {"type": "label", "label": "FTX"},
+    {"type": "star"},
+    {"type": "keep_unread"}
+  ],
+  "risk_level": "medium",
+  "requires_confirmation_before_create": true,
+  "clarifying_question": "我理解为：以后和 FTX 相关的邮件都加星、保持未读，并打上 FTX 标签。这样可以吗？"
+}
+```
+
+如果用户表达更明确，例如：
+
+```text
+以后 boss@company.com 的邮件都加星并保持未读。
+```
+
+Agent 可以直接创建规则，并在创建后告知用户：
+
+```text
+已记住：来自 boss@company.com 的邮件会加星并保持未读。
+```
+
+### 规则类型
+
+自定义规则至少支持这些类型：
+
+- 发件人规则：来自某人、某域名、某组织的邮件。
+- 主题/正文规则：包含某些关键词、项目名、订单号、客户名。
+- 语义规则：例如“像客户投诉的邮件”“和融资相关的邮件”“可能影响账户安全的邮件”。
+- 动作规则：加星、保持未读、归档、打标签、转入某类摘要。
+- 提醒规则：当天提醒、日报置顶、需要用户确认。
+- 禁止规则：永不删除、永不自动归档、永不标记已读。
+- 研究规则：遇到某类邮件时需要联网搜索和分析。
+
+### 规则冲突处理
+
+规则可能冲突，例如：
+
+- 用户说“GitHub 通知都标记已读”。
+- 后来又说“GitHub CI failed 要算重要”。
+
+处理原则：
+
+1. 更具体的规则优先于更宽泛的规则。
+2. 用户新规则优先于旧规则，但要保留历史。
+3. 安全/财务/法务相关规则优先级更高。
+4. 不确定时进入报告或请求确认，不静默执行高影响动作。
+
+### 规则学习
+
+Agent 不应该只被动接收规则，也应该从行为中主动提议：
+
+- 用户连续 3 次把某个发件人的邮件打上同一个标签：建议创建规则。
+- 用户连续拒绝归档某类促销邮件：降低该类邮件的自动归档倾向。
+- 用户经常打开某类通知：提升重要性。
+- 用户从不打开某类 newsletter：建议降级或归档。
+
+示例：
+
+```text
+我注意到你最近 4 次都把 FTX 相关邮件保留未读并加星。
+以后我可以自动帮你这样处理，要记住这个偏好吗？
+```
+
+## 研究型邮件分析
+
+MailTidy 的价值不能停留在“把邮件搬来搬去”。对于某些邮件，Agent 应该能识别出需要外部信息、时效性判断或背景分析，然后联网搜索、综合判断，并给出解释和建议。
+
+### 什么时候需要搜索
+
+以下情况应触发研究型分析：
+
+- 金融、交易所、订阅、价格、退款、账单异常。
+- 安全告警、数据泄露、账号风险、可疑登录。
+- 法务、政策、合规、税务、签证、保险等高风险邮件。
+- 新闻事件相关邮件，例如公司公告、裁员、产品关停、服务迁移。
+- 邮件中提到用户不熟悉的公司、产品、域名、活动。
+- 邮件要求用户点击链接、转账、验证身份或提供敏感信息。
+- 邮件内容依赖当前事实，例如“服务将在某日期关闭”“价格即将上涨”。
+
+### 研究型分析输出
+
+对这类邮件，Agent 不应只说“重要”。它应该给出：
+
+- 这封邮件在说什么。
+- 为什么需要注意。
+- 外部信息是否支持邮件内容。
+- 是否存在诈骗、钓鱼或过期信息风险。
+- 建议用户下一步做什么。
+- 哪些地方仍然不确定。
+- 使用了哪些来源。
+
+示例输出：
+
+```text
+这封 FTX 相关邮件可能与债权索赔流程有关。我查到近期确实存在 FTX 债权人分配/索赔相关信息，但邮件里的链接域名和官方渠道不完全一致。建议不要直接点击邮件链接，先从官方索赔网站或法院文件入口进入核对。已为你加星、保持未读，并打上 FTX 标签。
+```
+
+### 研究动作和邮件动作分离
+
+联网研究不等于执行邮箱操作。Agent 应先生成两类计划：
+
+```json
+{
+  "research_plan": [
+    {"query": "FTX creditor claim distribution official 2026"},
+    {"query": "sender domain legitimacy check"}
+  ],
+  "email_action_plan": [
+    {"action": "label", "label": "FTX"},
+    {"action": "star"},
+    {"action": "keep_unread"}
+  ]
+}
+```
+
+研究完成后，再更新解释、风险等级和建议动作。
+
+### 研究型学习
+
+研究型分析也要进入记忆系统，而不是每次都从零开始。
+
+Agent 需要学习：
+
+- 用户关心哪些实体：例如 FTX、某客户、某银行、某项目。
+- 用户偏好的风险等级：宁可多提醒还是少打扰。
+- 用户信任哪些来源：官方公告、法院文件、银行官网、GitHub issue、公司博客等。
+- 用户对某类建议的反馈：忽略、采纳、要求更多证据。
+- 某些实体的长期处理方式：例如 FTX 相关邮件默认加星、保留未读、附带背景分析。
+
+记忆示例：
+
+```json
+{
+  "entity": "FTX",
+  "entity_type": "company_or_case",
+  "user_interest": "high",
+  "default_actions": ["label:FTX", "star", "keep_unread"],
+  "research_required": true,
+  "trusted_sources": ["official claims portal", "court docket", "major financial news"],
+  "last_user_feedback": "wants careful verification before clicking links"
+}
+```
+
+这部分是 MailTidy 区别于普通自动化工具的关键：它不只是匹配规则，而是理解邮件背后的现实含义，并随着用户反馈越来越贴近用户的判断方式。
+
 ## 默认邮件分类
 
 - `important`：需要用户亲自关注的重要邮件。
@@ -206,6 +404,8 @@ mailtidy/
   models.py       数据模型和枚举
   policies.py     决策阈值、确认策略和动作规划
   memory.py       本地 JSON 记忆存储
+  custom_rules.py 自定义规则模型、解析、匹配和冲突处理，后续新增
+  research.py     联网研究型邮件分析，后续新增
   connectors.py   邮件连接器接口和 mock 连接器
   llm.py          LLM 接口和本地启发式分类器
   reports.py      Markdown/CSV 报告生成
@@ -268,6 +468,12 @@ python -m unittest discover
 - 真实草稿写入 Gmail/Outlook。
 - 定时任务。
 - Telegram/Slack/桌面通知。
+- 自定义规则文件与规则引擎。
+- 用户自然语言添加规则。
+- 模糊规则理解、追问和确认。
+- 研究型邮件分析。
+- 联网搜索、来源引用和建议生成。
+- 研究型分析的用户反馈学习。
 - 用户偏好的交互式反馈入口。
 - 风格学习的真实“已发送邮件”分析。
 - 订阅闲置判断和历史同比。
@@ -275,16 +481,21 @@ python -m unittest discover
 
 ## 下一步建议
 
-优先级最高的是接入 Gmail 的只读 dry-run：
+优先级最高的是先补齐 Agent 智能层，再接入 Gmail 只读 dry-run。建议顺序：
 
-1. 实现 `GmailConnector.fetch_recent()` 和 `GmailConnector.search()`。
-2. 只申请读取权限，先不做归档/打标签。
-3. 用真实邮件跑 `run-cleanup`，确认分类质量。
-4. 接入真实 LLM 分类器，替换当前启发式分类。
-5. 增加“展示计划 -> 用户确认 -> 执行动作”的交互层。
-6. 再开放 Gmail 归档、打标签、加星标、保存草稿权限。
+1. 新增 `custom_rules.py` 或 `mailtidy/rules/`，把自定义规则从主流程中抽离。
+2. 支持自然语言添加规则，并将规则解析成结构化策略。
+3. 对模糊规则加入确认问题，例如“放好”应解释为加标签、加星、保持未读，还是移动到某个文件夹。
+4. 新增 `research.py`，定义哪些邮件需要联网搜索、如何形成研究计划、如何输出解释和建议。
+5. 把规则学习和研究型学习写入 memory。
+6. 实现 `GmailConnector.fetch_recent()` 和 `GmailConnector.search()`。
+7. 只申请读取权限，先不做归档/打标签。
+8. 用真实邮件跑 `run-cleanup`，确认分类质量。
+9. 接入真实 LLM 分类器，替换当前启发式分类。
+10. 增加“展示计划 -> 用户确认 -> 执行动作”的交互层。
+11. 再开放 Gmail 归档、打标签、加星标、保存草稿权限。
 
-这样能最快验证产品价值，同时把权限风险控制住。
+这样能避免产品变成死板自动化：先让 Agent 具备理解用户偏好、解释现实背景和持续学习的能力，再接真实邮箱动作。
 
 ## 生产集成边界
 
@@ -292,6 +503,8 @@ python -m unittest discover
 
 - `EmailConnector`：Gmail 和 Outlook。
 - `LLMClient`：OpenAI、Anthropic 或模型路由层。
+- `CustomRuleEngine`：自然语言规则解析、存储、匹配和冲突处理。
+- `ResearchEngine`：联网搜索、来源整理、风险判断和建议生成。
 - `Notifier`：Slack、Telegram、邮件、桌面通知。
 - 持久化 memory：本地数据库、云端数据库或用户私有存储。
 - 审计日志：记录决策和动作，但默认不记录完整邮件正文。
@@ -308,10 +521,14 @@ python -m unittest discover
 ## MVP 里程碑
 
 1. 本地 demo Agent、mock connector、memory、reports、tests。已完成。
-2. Gmail 只读 dry-run。
-3. 真实 LLM 分类器。
-4. Gmail labels/archive/star/mark-read，带用户确认。
-5. Gmail 草稿生成。
-6. 订阅扫描增强：闲置判断、历史对比、退订链接。
-7. 定时任务和通知。
-8. Outlook connector。
+2. 自定义规则文件与规则引擎。
+3. 用户自然语言添加规则，包括模糊表达的澄清与确认。
+4. 研究型邮件分析：联网搜索、来源引用、风险判断和建议。
+5. 规则学习与研究型学习写入 memory。
+6. Gmail 只读 dry-run。
+7. 真实 LLM 分类器。
+8. Gmail labels/archive/star/mark-read，带用户确认。
+9. Gmail 草稿生成。
+10. 订阅扫描增强：闲置判断、历史对比、退订链接。
+11. 定时任务和通知。
+12. Outlook connector。

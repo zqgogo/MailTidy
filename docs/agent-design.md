@@ -17,6 +17,7 @@
   - 2.3 LLM 与工具调用
   - 2.4 决策、确认与规则
   - 2.5 透明度与掌控感
+  - 2.6 用户执行与配置面
 - 三、Skills（SOP 详细）
   - 3.1 收件箱清理
   - 3.2 智能回复草拟
@@ -308,9 +309,9 @@ LLM 每轮主要看 L0-L3。L4 原始记录只能通过工具按需读取，例�
 3. **永远保底有 `HeuristicLLMClient`**：即使所有外部依赖都挂了，跑 `python -m mailtidy.interfaces.cli run-cleanup` 仍然能得到一份基础清理报告。**这是 MailTidy 的最低可用线。**
 4. **降级不能偷偷变默认**：连续多次降级要主动告知"我已连续 3 天用回启发式，可能你的 OpenAI 配置有问题"。
 
-#### 2.1.6 综合 14 条硬约束
+#### 2.1.6 综合 15 条硬约束
 
-主循环代码（`mailtidy/agent_loop.py`）必须自带以下硬约束。**这 14 条是单测必检项，缺一不可。**
+主循环代码（`mailtidy/agent_loop.py`）必须自带以下硬约束。**这 15 条是单测必检项，缺一不可。**
 
 | # | 约束 | 默认值 / 说明 |
 | --- | --- | --- |
@@ -328,6 +329,7 @@ LLM 每轮主要看 L0-L3。L4 原始记录只能通过工具按需读取，例�
 | 12 | 降级路径 | 所有外部依赖都有明确降级方案 |
 | 13 | 上下文压缩 | LLM 默认只看摘要和证据索引；原始记录必须通过受限工具按需回查 |
 | 14 | 用户透明 | 实时暴露阶段 / 预算 / 已执行动作；任何不可逆动作 / 联网 / 偏好写入都可被用户事前感知与事后回查（详见 §2.5） |
+| 15 | 无法兑现必须明示 | 用户提出当前能力 / 权限 / 配置 / 安全策略无法完成的请求时，必须说明原因、给可行替代、写入报告的"未兑现请求"，不能假装成功（详见 §2.6.8） |
 
 #### 2.1.7 跨 SOP 联动
 
@@ -802,9 +804,9 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 
 **每个开关都必须可在任务级覆盖全局**——比如全局 `--quiet` 但本次想看全过程，可以单次 `mailtidy run-cleanup --verbose`。
 
-#### 2.5.7 反黑箱的 7 条硬约束
+#### 2.5.7 反黑箱的 8 条硬约束
 
-下面 7 条是 **§2.1.6 第 14 条"用户透明"的展开**，必须在 `agent/loop.py` 里强制：
+下面 8 条是 **§2.1.6 第 14 条"用户透明"的展开**，必须在 `agent/loop.py` 里强制：
 
 1. **任何动作都必须有 `why`**：`apply_action` / `update_memory` / `web_search` 调用记录都必须带一个 ≤ 200 字的人类可读理由。无理由的动作直接拒绝执行。
 2. **任何降级都必须明示**：见 §2.1.5；降级写入 trace 同时通过主动告知告诉用户。
@@ -813,6 +815,7 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 5. **任何 token 消耗都必须可追溯到 `(task_id, step_id, tool_name)`**：未归因的消耗视为 bug。
 6. **后台任务的所有自动决策都必须在下次报告里复述**：cron 跑了什么、自动续了什么、自动降级了什么。
 7. **静默 ≠ 透明**：Agent 不允许"做得对就不解释"。即使本次完全顺利，也要在报告里写"本次未触发任何降级 / 未联网 / 未读取邮件正文"，让用户看到 Agent 也愿意承担"无事发生"的解释成本。
+8. **做不到必须说做不到**：用户提出无法兑现的请求时，Agent 必须用 `CapabilityResult` 明确标记 `unsupported / blocked / needs_setup / unsafe / ambiguous`，并进入报告的"未兑现请求"段；不允许用"好的"敷衍后静默不执行。
 
 #### 2.5.8 工程落点
 
@@ -826,6 +829,230 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 - `interfaces/cli.py`：进度行渲染、`--show-thinking` / `--show-tools` / `--quiet` / `--verbose` / `--paranoid` 等 flag 处理。
 - `interfaces/prompts.py`：`mailtidy task cancel` / `mailtidy memory rollback` 等控制面命令。
 - `data/reports.py`：扩展报告 schema，新增"成本卡"、"思考流摘要"、"撤销链接"段（详见 §4.4.5）。
+
+### 2.6 用户执行与配置面
+
+这一节回答三个具体问题：**怎么跟 MailTidy 打交道？想改东西去哪儿改？我改了 Agent 知道、我自己也能看得见吗？**
+
+> 一句话：日常使用是**对话式 + 视图式**，命令行是高级用户的入口，**普通用户不需要记任何命令**。所有改动都被写进审计 + 在下一次任务报告里复述，"我改了什么"永远找得到。
+
+#### 2.6.1 三种交互形态（按使用频率排序）
+
+| 形态 | 谁在用 | 典型场景 | 怎么发生 |
+| --- | --- | --- | --- |
+| **对话式**（默认） | 所有用户 | "把这类邮件以后都归档"、"FTX 相关的所有邮件留着我自己看"、"今天预算少一点" | 在 CLI / Web / 桌面端的一个统一输入框里直接说人话，Agent 解析成规则 / 偏好 / 单次指令 |
+| **视图式**（默认） | 所有用户 | 看任务报告、看成本卡、看"我设过什么偏好"、点撤销、点确认 | 任务结束推给你一份卡片报告；"我的设置面板"用列表 + 开关呈现所有可调项；点击即生效 |
+| **命令式**（兜底） | 高级用户、自动化脚本、CI | 批量管理、定时任务、跨机器同步、调试 | 一组 `mailtidy ...` 子命令；同样的事对话也能干，**记不住命令完全没关系** |
+
+设计承诺：
+
+- **不需要记命令**：99% 的日常操作（加规则、改偏好、调预算、看历史、撤销动作）都能在对话里完成；不能的 1% 都在视图里有按钮。
+- **三种形态行为完全一致**：对话改一个偏好，等同于在视图里点一个开关，等同于命令行 `mailtidy memory set ...`。底层走同一个 API，落同一份审计。
+- **始终有"我改过什么"的视图**：见 §2.6.3 的"我的设置面板"。
+
+#### 2.6.2 典型用户旅程
+
+```text
+[安装]
+  pip install mailtidy
+  mailtidy setup           ← 一次性引导：连邮箱 OAuth、选默认模型、设月预算
+                             （也可以全程对话："帮我接 Gmail，月预算 5 美元"）
+
+[每天早上]
+  日报自动到 Telegram / Slack / 桌面通知    ← 不用主动跑
+  点开报告 → 看 5–10 条邮件摘要 + 紧急度 + 建议动作
+
+[周末整理]
+  在桌面端 / Web 点 "清理收件箱"            ← 也可以 CLI: mailtidy run cleanup
+  Agent 给出 plan 预览（先不动邮箱）
+    └─ 你看一眼，按 [Approve all] 或对里面 3 条说"这条不要归档"
+  Agent 执行，结束推一张报告卡：
+    ├─ 处理 30 封：归档 12 / 加星 4 / 打标签 8 / 略过 6
+    ├─ 成本：1.2 万 token, $0.018, 38 秒
+    ├─ 学到了：你拒绝归档了 hr@company.com 的促销 → 已记成永久例外
+    └─ [撤销] [查看思考流] [本次配置 vs 默认]
+
+[随时]
+  你跟 Agent 说："以后 hr@company.com 的所有邮件都加星不要归档"
+  Agent："收到。已写入偏好；下次会按这条执行；30 天内可一键回滚。" ← §4.3.4 闭环
+
+[一个月后]
+  收到主动告知："Notion 订阅从 $10 涨到 $15，是否继续？"
+  你回："不要了，帮我退订并标到 Receipts/cancelled 标签下。"
+```
+
+整条链路里**用户从没记过任何 flag 或路径**——但每一步都能找到对应的命令、文件和数据结构（落点见 §2.6.4）。
+
+#### 2.6.3 配置改在哪儿、谁能看到
+
+任何"调整 Agent 行为"的动作都对应一份**统一的 settings store**（落 `data/repositories.py` 的 `SettingsRepo`）。三种入口写的是同一个 store，UI 显示的也是这个 store：
+
+| 改的方式 | 适合谁 | 改完去哪儿确认 |
+| --- | --- | --- |
+| **跟 Agent 说人话** | 默认 | 对话里 Agent 当场复读"我改了 X 字段：旧值 = a，新值 = b，30 天内可回滚"；同时进"我的设置面板" |
+| **打开"我的设置面板"**（CLI: `mailtidy settings` / Web: 一个表单页） | 默认 | 面板顶部就是"最近 7 天的修改记录"；每条都能 [回滚] |
+| **直接编辑配置文件** | 高级用户 | 文件本身有注释说明每个字段；保存后下次任务报告会列"本次生效的配置 vs 默认的差异" |
+
+"我的设置面板"长这样（CLI 和 Web 同一份数据，只是展示不同）：
+
+```text
+┌─ 我的设置面板 ────────────────────────────────────────────┐
+│ 邮箱：gmail (you@example.com, 只读+写)         [切换/解绑] │
+│ 默认模型：gpt-4o-mini  · fallback: local-qwen  [换模型]   │
+│ 月预算：$5.00 / 已用 $0.42 (8.4%)              [改预算]   │
+│ 风险态度：standard ( [paranoid] [standard] [auto] )       │
+│ 撤销窗口：7 天                                  [改]      │
+│ 隐私脱敏：开 (邮件正文不落 trace)               [改]      │
+│                                                            │
+│ 自定义规则（5 条）                              [新增/管理] │
+│   1. ceo@example.com → IMPORTANT 强制                     │
+│   2. *@deals.* → PROMOTION 自动归档（已确认）              │
+│   ...                                                      │
+│                                                            │
+│ 学到的偏好（12 条）                             [审阅]     │
+│   · hr@company.com：拒绝归档 (3 次, 学于 2026-05-01)      │
+│   · 写邮件结尾偏好 "Cheers,"   (5 次)                      │
+│   ...                                                      │
+│                                                            │
+│ ─── 最近修改（按时间倒序） ──────────────────────────────  │
+│ [2026-05-11 14:20] 月预算 $3 → $5     来源：对话           │
+│ [2026-05-10 09:08] 增加规则 "ceo→IMPORTANT"  来源：UI      │
+│ [2026-05-09 22:31] 撤销了 m3 的归档    来源：报告卡        │
+└────────────────────────────────────────────────────────────┘
+```
+
+**永远能找到 "我改了什么"** 的三个保证：
+
+1. **设置面板"最近修改"段** —— 一目十行，按时间倒序，永远在那。
+2. **每次任务报告的"本次生效配置 vs 默认的差异"段** —— 哪怕 0 差异也要写"全部默认"，让你知道这次行为完全是默认状态下产生的。
+3. **审计日志 `.mailtidy/audit.log`** —— 每次写偏好 / 改配置 / 撤销 / 学习入库都留一行，包含 `(时间, 字段, 旧值, 新值, 来源 = 对话 / UI / CLI / 学习层)`。
+
+#### 2.6.4 入口与落点
+
+| 入口 | 现状 | 怎么用 | 落点 |
+| --- | --- | --- | --- |
+| **对话**（默认） | ⏳ Phase 1-2 | 在任意 UI / CLI 输入框直接说话 | `interfaces/prompts.py` + `agent/loop.py` 解析意图 |
+| **"我的设置面板" CLI** | ⏳ Phase 1 | `mailtidy settings` 进入 TUI 表单 | `interfaces/cli.py` + `data/repositories.py:SettingsRepo` |
+| **"我的设置面板" Web** | ⏳ Phase 5 | 浏览器打开 `mailtidy ui` | `interfaces/web/` |
+| **桌面 / 状态栏** | ⏳ Phase 5 | macOS 状态栏 / Windows 托盘 | `interfaces/desktop/` |
+| **任务命令**（高级） | ✅ 部分 | `python -m mailtidy.interfaces.cli {run-cleanup,daily-brief,subscription-scan,draft-replies} --demo` | `interfaces/cli.py` |
+| **任务管理**（高级） | ⏳ Phase 1 | `mailtidy task list/show/cancel/resume/purge` | `interfaces/cli.py` |
+| **配置文件直改**（高级） | ⏳ Phase 1 | 编辑 `~/.config/mailtidy/config.toml` 或 `.mailtidy/config.toml` | `ops/config.py` |
+| **定时调度** | ⏳ Phase 1 | 用户自己写 cron / launchd / systemd timer，调任意 CLI 命令 | `ops/scheduler.py` 提供模板，**不替你装** |
+| **主动通知通道** | ⏳ Phase 2 | Slack / Telegram / 桌面通知收主动告知 | `integrations/notification/` |
+
+所有入口共用同一份 Agent 内核 + 同一份 settings store，**绝不会"在 UI 改了在 CLI 不生效"**。
+
+#### 2.6.5 写死 vs 可调（精简对照表）
+
+> **写死 = 产品红线，改它就破坏 Agent 安全语义**；**可调 = 默认值合理但用户随时能改**。
+
+| 维度 | 写死（不开放） | 可调 |
+| --- | --- | --- |
+| 邮件后端 | 必须经 `EmailConnector`；**永不暴露 `send`** | `connector = mock\|gmail\|outlook` + OAuth 凭据 |
+| 决策框架 | "category → action" 的映射形状 | 各阈值、是否自动归档促销、风险态度（paranoid/standard/auto） |
+| 高风险动作 | "联网 / 写偏好 / 归档"必须经 `ask_user` | `--paranoid` 单次更严、`--auto-confirm` 单次更松 |
+| 预算上限 | "用尽必须退出"这条规则 | `max_steps` / `max_tokens` / `max_wall_seconds`、月度预算 |
+| 退出条件 | 9 种条件本身（§2.1.3） | 各条件触发的具体阈值 |
+| 执行节奏 | 4 轮"轻 → 重"分阶段（§2.1.4） | 每阶段是否启用、`--no-research` 等子开关 |
+| LLM | `LLMClient` 接口稳定 | `default_model` / 各 purpose 的 `ModelRoute` / fallback / 单价 |
+| 本地兜底 | `HeuristicLLMClient` 必须存在 | 是否允许 fallback（关掉 = 接受任务失败） |
+| 思考与成本 | trace 永远落盘 + 每次 LLM 调用必有 `LLMCallRecord` | 思考流是否显示、成本卡是否在终端打印、月预警阈值 |
+| 学习层 | 学习只能"提议"，不能擅自改重要偏好（§4.3.2） | 接受 / 拒绝 / 永久例外、自动应用提议的等级 |
+| 规则 | 解析 / 匹配 / 冲突处理流程 | 任意增删规则、改优先级、关掉某条 |
+| 隐私 | trace / 报告默认脱敏 | 关闭脱敏（自担风险）、加自定义脱敏规则 |
+| 撤销 | 已执行动作 N 天内必须可撤销 | 撤销窗口长度、是否对学习偏好启用撤销 |
+| 数据位置 | 加密 SQLite + JSON 备份双轨（§4.5.1） | `MAILTIDY_HOME` 改根目录、子文件名可在 config 改 |
+| 不发邮件 | 永久写死，不开放 | — |
+
+#### 2.6.6 配置覆盖优先级
+
+同一字段被多处设置时，按"低 → 高"覆盖，最终值会出现在任务报告的"本次生效配置"段：
+
+1. 代码默认值（`RuntimeConfig` / `DecisionPolicy` 等 dataclass）
+2. 全局 `~/.config/mailtidy/config.toml`
+3. 项目级 `./.mailtidy/config.toml`
+4. 环境变量（`MAILTIDY_HOME` / `MAILTIDY_OPENAI_API_KEY` / `MAILTIDY_DEFAULT_MODEL` …）
+5. CLI flag / 子命令参数
+6. 任务运行中的用户响应（`ask_user` 选 "always for sender X" 会写回学习层 / 偏好）
+
+> 优先级 6 是**唯一允许临时改写 2-3 层**的来源，且必须明示并入审计。
+
+#### 2.6.7 用户在每个生命周期阶段能做什么
+
+| 阶段 | 能做什么 | 默认 / 安全策略 |
+| --- | --- | --- |
+| 安装与认证 | 装包、跑 `mailtidy setup` 或对话引导（连邮箱、选模型、设预算） | 没接真实 connector 前一律拒绝执行；OAuth 仅最小 scope |
+| 任务发起 | 对话发起、点 UI、定时任务触发 | 任意入口都先出 plan 预览，不会立即写邮箱 |
+| 计划预览 | 看 plan、改预算、强制 dry-run、临时换模型 | 首次接入真实邮箱强制 dry-run |
+| 任务运行中 | 看进度行、按 `q` 取消、看思考流 | 取消后已执行的安全动作保留 |
+| 高风险动作前 | 回答 `ask_user`：approve / skip / always for sender X | 不回答 = 跳过（不会"超时就执行"） |
+| 任务结束 | 看报告 + 成本卡 + 已执行动作 + "本次配置 vs 默认" | 哪怕 0 动作也复述"本次为什么没动" |
+| 任务后 | 撤销动作、回滚学习偏好、"以后别提"、查历史 | 撤销窗口默认 7 天 |
+| 重大事件 | 主动告知收推送（订阅涨价 / 钓鱼疑似 / 预算告警） | 通道、阈值、静默时段可配 |
+
+#### 2.6.8 用户说了但无法兑现怎么办
+
+对话式入口最容易制造错觉：用户说一句话，Agent 好像什么都能答应。MailTidy 的规则相反：**不能兑现的请求必须当场说清楚，并留下记录**。宁可显得能力有限，也不能让用户以为事情已经办成。
+
+先把"无法兑现"分成 6 类：
+
+| 类型 | 例子 | Agent 必须怎么回应 |
+| --- | --- | --- |
+| **未实现** | "帮我接 Outlook"（当前只有 Gmail / mock 或 Outlook adapter 未填） | 明确说"现在未实现"，给预计落点 / 替代方案；可加入 roadmap / 待办 |
+| **缺权限 / 未设置** | "把这封归档"但 OAuth 只有只读 scope | 说明缺哪个权限，引导用户授权；本次保持 dry-run |
+| **安全红线** | "直接帮我把这封邮件发出去" | 拒绝：MailTidy 永不自动发送邮件；可替代为保存草稿 |
+| **配置禁止** | 用户关了联网，但说"去网上查一下这个域名" | 说明当前配置禁止联网；给 [临时允许一次] / [改设置] / [跳过] |
+| **信息不足 / 指令歧义** | "把重要的都处理掉" | 追问澄清，不执行；给可选解释："处理掉=归档、加星、标已读？" |
+| **外部失败** | OpenAI / Gmail API 持续失败 | 明确降级或失败原因；可转 heuristic / 本地模型 / 半成品报告 |
+
+统一返回结构：
+
+```json
+{
+  "request": "以后这类邮件直接删除",
+  "status": "blocked",
+  "reason_code": "unsafe_action",
+  "user_message": "我不能自动删除邮件。可以改为：自动归档 + 打标签 + 30 天内可撤销。",
+  "alternatives": [
+    {"label": "改为归档", "action": "archive_with_label"},
+    {"label": "只生成规则草稿", "action": "draft_rule"},
+    {"label": "跳过", "action": "skip"}
+  ],
+  "record_in_report": true
+}
+```
+
+用户体验要求：
+
+1. **不能说"好的"然后不做**：只要没有真正写入规则 / 执行动作 / 创建任务，就不能用成功语气。
+2. **必须给替代方案**：没有替代方案时，也要明确说"目前没有安全替代方案"。
+3. **必须可追踪**：所有未兑现请求写入任务报告的"未兑现请求"段，也写入 `.mailtidy/audit.log`。
+4. **能转待办就转待办**：未实现但合理的能力，进入 `pending_capabilities`，例如 `outlook_connector`、`web_ui_settings_panel`，供路线图和用户设置页展示。
+5. **被安全红线拒绝的请求不学习成偏好**：例如"以后直接删除这种邮件"不能被学习层偷偷转成危险偏好，只能记录一次拒绝事件。
+6. **缺权限时默认 dry-run**：展示"如果授权后我会做什么"，但不实际动邮箱。
+
+报告里的展示示例：
+
+```text
+## 未兑现请求
+- 用户请求：以后这种邮件直接删除
+  状态：已拒绝（安全红线）
+  原因：MailTidy 不支持自动删除 / 自动发送这类不可逆动作
+  替代方案：已生成"自动归档 + 打 Trash-risk 标签"的规则草稿，等待你确认
+
+- 用户请求：检查 Outlook 邮箱
+  状态：暂不能执行（connector 未实现）
+  替代方案：可先接 Gmail；OutlookConnector 已列入 Phase 4
+```
+
+工程落点：
+
+- `agent/planner.py`：用户自然语言先过 capability check，再生成 plan。
+- `agent/executor.py`：执行前再次校验权限 / 安全红线，防止 planner 漏判。
+- `interfaces/prompts.py`：渲染替代方案按钮。
+- `data/tasks.py`：任务记录新增 `unfulfilled_requests`。
+- `ops/audit.py`：记录所有 `unsupported / blocked / needs_setup / unsafe / ambiguous` 事件。
 
 ---
 
@@ -1013,6 +1240,65 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 
 只有用户答 yes 才真正写入偏好。这样学习是**透明的**——用户对 Agent 的信任来自可解释，而不是黑盒猜对。
 
+#### 4.3.4 学习 → Agent 决策的闭环
+
+学习如果不被下次决策真的用上，就只是 "好看的统计"。MailTidy 强制学习产出必须有一条明确的下游消费链路，而且**每条用过的偏好都要在报告里反向追溯**——告诉用户 "这次为什么这么做，是因为你之前学过 X"。
+
+**5 类学习产出 → 5 条消费链路**：
+
+| 学习产出 | 落到哪儿 | 谁消费 | 何时被用 |
+| --- | --- | --- | --- |
+| **发件人偏好**（`SenderPreference.category` / `importance_delta`） | `data/memory.py` 的偏好层 | `agent/policies.DecisionPolicy.apply_memory` | 每次 `classify_email` 之后立即叠加；可能改 category、抬高 confidence、调 urgency |
+| **写作风格画像**（`StyleProfile`） | 偏好层 | `agent.legacy.MailTidyAgent.draft_replies` → `LLMClient.draft_reply(style=...)` | 每次写草稿都注入开头 / 结尾 / 签名 / 语气 |
+| **自定义规则**（结构化） | `rules/store.py` | `tools/rules.py:match_rules` → `agent/loop.py` | 每封邮件分类后、动作下发前，规则匹配优先于 policy |
+| **实体记忆**（FTX、客户、项目） | 实体层 | `research/planner.py` + `agent/loop.py` 的 deep_think | 邮件涉及该实体时，注入"默认动作 / 信任来源 / 上次反馈"，影响是否触发研究、是否升级风险 |
+| **决策日志**（每次 act 后写） | 决策日志 | `agent/loop.py:ask_user` 与异步学习扫描 | `ask_user` 时回顾"上次类似情况你选了 X"；异步学习 7 天扫一次出新的提议 |
+
+**LLM prompt 注入：每次 LLM 调用都强制带上"偏好摘要"**
+
+不是把全部偏好塞进 prompt（那会爆 token），而是按相关性挑出与本次邮件相关的偏好，做成 ≤ 200 字的摘要：
+
+```text
+# Relevant preferences for this email
+- sender ceo@example.com → category=IMPORTANT (forced; learned 3 confirmations on 2026-04)
+- sender domain @company.com → urgency +1 (learned 7 acks in 14 days)
+- style: opening "Hi", closing "Cheers,", signature "—Alice"
+- entity FTX flagged: research_required=true, trusted_sources=[...]
+```
+
+落点：`agent/context.py` 的 `WorkingContext.preference_digest()` 字段，由 LLM 客户端在 system prompt 里强制注入。
+
+**反向追溯：每次任务报告必须列"本次因为学过 X，所以做了 Y"**
+
+任务报告的"已执行动作 + 撤销入口"段（§4.4.5）每条动作都要标 `learned_from` 元信息：
+
+```text
+✓ STAR m1 (ceo@example.com)
+  why: sender preference IMPORTANT (learned from 3 user confirmations on 2026-04-15..28)
+  [Roll back this preference]    [Undo this action]
+```
+
+```text
+✓ DRAFT m4 reply
+  why: actionable email needs reply
+  style: applied your learned closing "Cheers,—Alice" (5 修改样本)
+  [Edit style profile]    [Discard this draft]
+```
+
+**学习写入 ⇄ 决策消费的双向审计**
+
+- 写偏好时：`audit.log` 记 `(timestamp, field, old, new, source=学习层, learned_from=[task_ids])`。
+- 用偏好时：决策 trace 步骤里记 `applied_preferences=[preference_ids]`。
+- 用户在报告里点 "Roll back this preference"，会同时撤销该偏好以及该偏好在过去 N 天内造成的所有动作（如果在撤销窗口内）。
+
+**安全闸门复述（呼应 §4.3.2）**
+
+- 单次反馈对偏好的影响 ≤ ±1，避免一次误操作就永久改变 Agent 行为。
+- 任何"破坏性"偏好（自动删除、自动发送、自动转发）都不允许学出来，只能用户在设置面板显式开启。
+- 每条学到的偏好都附 `learned_at` / `learned_from` / `confidence`，用户可一键回滚。
+
+> 没有 §4.3.4 这层闭环，§4.3.1-4.3.3 都只是 "数据收集"。**学习的价值由 §4.3.4 兑现**，而不是由 §4.3.1 的信号丰富度兑现。
+
 ### 4.4 任务记录与生命周期
 
 每一次 Agent 执行，都是一个**有名字、有目标、有进度、有最终产出**的"任务"。任务记录系统让 Agent 具备三件事：
@@ -1067,6 +1353,15 @@ running ──── checkpoint ──── checkpoint ──── checkpoint 
     "completed_actions": [
       { "action": "label", "ids": ["m2", "m7"], "label": "Newsletters" },
       { "action": "star", "ids": ["m1", "m4"] }
+    ],
+    "unfulfilled_requests": [
+      {
+        "request": "以后这种邮件直接删除",
+        "status": "blocked",
+        "reason_code": "unsafe_action",
+        "alternatives": ["archive_with_label", "draft_rule"],
+        "moved_to_pending_capabilities": false
+      }
     ],
     "remaining_budget": { "steps": 4, "tokens": 12000, "wall_seconds": 60 }
   },
@@ -1161,9 +1456,10 @@ running ──── checkpoint ──── checkpoint ──── checkpoint 
 | **回查记录** | 哪些原始邮件 / 历史 trace / 历史决策被读取过、读了多长片段（见 §2.1.2 L4 限制） |
 | **已执行动作 + 撤销入口** | 列出每个 `apply_action` 的 `(action, ids, why)`，并附"撤销"链接 / CLI 命令 |
 | **未执行动作** | 因风险 / 预算 / 用户拒绝而**没**做的事，明示原因 |
+| **未兑现请求** | 用户说了但 Agent 没能完成的请求：`request / status / reason_code / alternatives / 是否已转待办`（见 §2.6.8） |
 | 任务关联 | parent_task_id / 衍生出的 child_task_ids |
 
-后五段（成本卡 / 思考流 / 回查 / 已执行 / 未执行）是 §2.5 透明度要求的强制段落，**不能因为本次"没什么可说"就省略**——即使为空也要明示"本次未联网 / 未读取邮件正文 / 未发生降级"，让用户看到 Agent 愿意承担"无事发生"的解释成本。
+后六段（成本卡 / 思考流 / 回查 / 已执行 / 未执行 / 未兑现请求）是 §2.5 透明度要求的强制段落，**不能因为本次"没什么可说"就省略**——即使为空也要明示"本次未联网 / 未读取邮件正文 / 未发生降级 / 未出现未兑现请求"，让用户看到 Agent 愿意承担"无事发生"的解释成本。
 
 报告写成功后才会把任务状态置为 `finished`，并把 `report_path` 字段填上——保证"任务标记为完成 ⇔ 报告确实存在"。
 
@@ -1237,48 +1533,11 @@ running ──── checkpoint ──── checkpoint ──── checkpoint 
 
 ## 五、工程进度与路线图
 
-### 5.1 目录结构改动
+### 5.1 目录结构
 
-旧版根目录所有职责都堆在 7 个顶层 .py 里：`agent.py` 同时承担 SOP 编排、业务流程入口和部分决策；`memory.py` 同时放偏好、日志、存储；`connectors.py` 把 Mock 与未来真实邮箱混在同一层；`reports.py` 服务多个 SOP 却没有和任务记录打通。本次重构已经按 8 层拆开，**根目录的旧 .py 全部物理删除**，所有调用方（测试、CLI、文档示例）都迁到新路径。
+代码按职责拆成 8 层：`agent` 负责运行循环，`skills` 负责业务 SOP，`tools` 负责 LLM 可调用能力，`llm` 负责模型抽象 / 路由 / 统计 / 成本归因，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。根目录只保留 `__init__.py`。
 
-#### 5.1.1 当前结构（搬迁已完成，根目录无遗留）
-
-```text
-mailtidy/
-  __init__.py             仅 re-export MailTidyAgent
-  agent/                  Agent 内核 + legacy.MailTidyAgent + policies.DecisionPolicy
-  data/                   核心数据模型、记忆、报告、任务、摘要、数据库
-  skills/                 高层 SOP（清理 / 日报 / 订阅扫描 / 草稿）
-  tools/                  LLM 可调用工具（命名空间已就位，待 Phase 1 填充）
-  rules/                  自定义规则引擎
-  research/               研究型分析与防钓鱼
-  integrations/           email / llm / notification 适配
-  interfaces/             CLI / Web / Desktop（CLI 已实迁）
-  ops/                    config / logging / scheduler / audit
-tests/
-  test_agent.py           5 条测试全部通过，使用新路径导入
-.mailtidy/
-  memory.json             本地 demo 记忆文件（已 .gitignore）
-```
-
-每个旧顶层文件的最终归宿：
-
-| 旧路径 | 新归宿 | 状态 |
-| --- | --- | --- |
-| `mailtidy/agent.py` | `mailtidy/agent/legacy.py`（`mailtidy.agent` 包 re-export `MailTidyAgent`） | 已删除 |
-| `mailtidy/cli.py` | `mailtidy/interfaces/cli.py`（`python -m mailtidy.interfaces.cli`） | 已删除 |
-| `mailtidy/connectors.py` | `mailtidy/integrations/email/base.py` + `mock.py` | 已删除 |
-| `mailtidy/llm.py` | `mailtidy/llm/` 专用层 + `mailtidy/integrations/llm/` 具体 adapter | 已删除单文件，已升级为包目录 |
-| `mailtidy/memory.py` | `mailtidy/data/memory.py` | 已删除 |
-| `mailtidy/models.py` | `mailtidy/data/models.py` | 已删除 |
-| `mailtidy/policies.py` | `mailtidy/agent/policies.py`（决策属于 Agent 内核） | 已删除 |
-| `mailtidy/reports.py` | `mailtidy/data/reports.py` | 已删除 |
-
-> 之前的迁移过程中曾保留过一轮 ≤ 25 行的兼容 shim；由于尚未有外部用户依赖旧路径，本次直接清空 shim，避免日后两套入口分歧。如果未来要为下游再开兼容入口，可在根目录加新的 shim，但**默认主路径只剩包目录分层**。
-
-#### 5.1.2 目标结构（Agent 化后的清晰分层）
-
-目标不是简单多建几个文件夹，而是把职责拆成 8 层：`agent` 负责运行循环，`skills` 负责业务 SOP，`tools` 负责 LLM 可调用能力，`llm` 负责模型抽象 / 路由 / 统计 / 成本归因，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。
+#### 5.1.1 完整目录
 
 ```text
 mailtidy/
@@ -1384,8 +1643,9 @@ mailtidy/
     scheduler.py                 cron / launchd 任务调度
     audit.py                     审计日志
 
-  （旧顶层 cli.py / connectors.py / llm.py / memory.py / models.py / policies.py / reports.py / agent.py 已全部物理删除，无 shim）
 ```
+
+> `mailtidy.agent` 是包目录而不是单文件模块；`from mailtidy.agent import MailTidyAgent` 通过 `agent/__init__.py` re-export 自 `agent/legacy.py`。Phase 1 把 SOP 全部接到 `agent/loop.py` 后，`legacy.py` 即可删除。
 
 用户数据目录仍然放在 `.mailtidy/`，不进包目录：
 
@@ -1401,7 +1661,7 @@ mailtidy/
   pending_tasks.json             待恢复 / 待续跑队列
 ```
 
-#### 5.1.3 模块边界
+#### 5.1.2 模块边界
 
 | 层 | 负责什么 | 不负责什么 |
 | --- | --- | --- |
@@ -1416,24 +1676,29 @@ mailtidy/
 | `interfaces/` | CLI、Web、Desktop 的用户交互 | Agent 内核逻辑 |
 | `ops/` | 配置、调度、审计、运行日志 | 邮件分类和用户偏好学习 |
 
-#### 5.1.4 迁移顺序
+#### 5.1.3 各层填充进度
 
-目录迁移不能一次性大搬家，否则测试会断。按下面顺序做，每一步都保持旧入口兼容。✅ 表示已完成，⏳ 表示已建好骨架与占位、待 Phase 1-2 填充实际逻辑：
+骨架全部就位；下表说明每层"是占位还是实现"，仅作为 Phase 1-3 的 to-do 索引：
 
-| 顺序 | 改动 | 状态 | 备注 |
-| --- | --- | --- | --- |
-| 1 | 新建 `integrations/email/`，迁移 `connectors.py`；新建 `integrations/llm/` 放供应商 / 本地模型 adapter | ✅ | 真实实现已在新位置，旧顶层文件已删除 |
-| 2 | 新建 `data/`，迁移 `models.py`、`memory.py`、`reports.py` | ✅ | 真实实现已在新位置，旧顶层文件已删除 |
-| 3 | 新建 `skills/`，把 SOP 从 `agent.py` 拆出 | ⏳ | `skills/{inbox_cleanup,daily_brief,subscription_scan,draft_replies}.py` 当前是对 `agent.legacy.MailTidyAgent` 的薄 wrapper；Phase 1 替换成独立实现 |
-| 4 | 新建 `tools/`，把 connector / memory / rule / research / action 包成 LLM 可调用工具 | ⏳ | 命名空间已建好，`Tool` schema 与限频是 Phase 1 |
-| 5 | 新建 `agent/{loop,state,context,compression,deep_think,exits,recovery,trace}.py` | ⏳ | 文件已建为占位 dataclass / enum；填充逻辑是 Phase 1 主体 |
-| 6 | 新建 `rules/`、`research/`，接入 `match_rules` 和 `web_search` 工具 | ⏳ | 模块已建好骨架；逻辑是 Phase 3 |
-| 7 | 新建 `interfaces/`、`ops/`，迁移 CLI、配置、调度、审计 | ✅ | `mailtidy.interfaces.cli` 是真实实现，`python -m mailtidy.interfaces.cli` 是新入口 |
-| 8 | 把 `policies.py` 归入 `agent/`（决策属于内核） | ✅ | `mailtidy.agent.policies.DecisionPolicy` 是真实实现，旧 `policies.py` 已删除 |
-| 9 | 删除根目录所有兼容 shim，把测试 / README / docs 全部切到新路径 | ✅ | 根目录只剩 `__init__.py` 一个文件 |
-| 10 | 新建专用 `llm/` 层，承接模型抽象、路由、token / 成本统计 | ✅ | `LLMClient` 已从 `integrations/llm/base.py` 上移到 `llm/base.py`，`integrations/llm/base.py` 已删除 |
-
-旧的顶层 `agent.py` / `cli.py` / `connectors.py` / `llm.py` / `memory.py` / `models.py` / `policies.py` / `reports.py` 全部物理删除，根目录只保留 `__init__.py`。`mailtidy.agent` 是包目录而不是单文件模块，`from mailtidy.agent import MailTidyAgent` 通过 `agent/__init__.py` re-export 自 `agent/legacy.py`。
+| 层 | 文件 | 状态 |
+| --- | --- | --- |
+| `agent/policies.py` | `DecisionPolicy` | ✅ 实现，被 `agent.legacy` 使用 |
+| `agent/legacy.py` | `MailTidyAgent`（流水线 SOP 编排） | ✅ 实现，过渡用；Phase 1 后由 `agent/loop.py` 取代 |
+| `agent/{loop,state,context,compression,deep_think,exits,recovery,trace,planner,executor}.py` | Reason-Act-Observe 内核 | ⏳ 占位 dataclass / enum，Phase 1 填充 |
+| `skills/*.py` | 四条 SOP | ⏳ 当前是对 `agent.legacy` 的薄 wrapper；Phase 1 改为直连 `agent/loop.py` |
+| `tools/*.py` | LLM 可调用工具 | ⏳ 命名空间就位；`Tool` schema、限频、风险等级 Phase 1 |
+| `llm/{base,router,usage}.py` | 模型抽象 / 路由 / 统计 | ✅ 接口与统计结构就位；Phase 1 接进 `agent/loop.py` |
+| `data/{models,memory,reports,categories,summaries,tasks,learning,database,repositories}.py` | 数据模型与持久化 | ✅ 模型 / 记忆 / 报告 / 分类已实现；任务记录、learning、SQLite Phase 1-2 |
+| `rules/*.py` | 自定义规则引擎 | ⏳ 骨架；逻辑 Phase 3 |
+| `research/*.py` | 研究型分析与防钓鱼 | ⏳ 骨架；逻辑 Phase 3 |
+| `integrations/email/{base,mock}.py` | 邮件 connector | ✅ Mock 已实现 |
+| `integrations/email/{gmail,outlook}.py` | 真实邮箱 | ⏳ Phase 4 |
+| `integrations/llm/{heuristic,local,openai,anthropic}.py` | LLM adapter | ✅ heuristic 实现；其他三个占位 |
+| `integrations/notification/*.py` | 通知通道 | ⏳ Phase 2 |
+| `interfaces/cli.py` | CLI demo | ✅ 仅 `--demo` 模式 |
+| `interfaces/prompts.py` | 交互式确认 | ⏳ Phase 1 |
+| `interfaces/{web,desktop}/` | UI | ⏳ Phase 5 |
+| `ops/{config,logging,scheduler,audit}.py` | 配置 / 日志 / 调度 / 审计 | ⏳ 仅常量与 dataclass，Phase 1-2 接通 |
 
 ### 5.2 当前已实现功能
 

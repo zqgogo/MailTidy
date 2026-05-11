@@ -1,30 +1,31 @@
+"""本地启发式 LLM 回退实现。
+
+它故意做得"够用就行"：用关键词命中给出确定性的判断，让单测可重复。
+生产环境应替换为真正的 LLMClient，但保留这个类是有价值的——
+断网 / 没 API key / CI 环境下都能让 demo 跑起来，也是 §2.1.4 兜底策略
+里 MailTidy 的"最低可用线"。
+"""
+
 from __future__ import annotations
 
 import re
-from abc import ABC, abstractmethod
 
-from mailtidy.models import Category, EmailJudgment, EmailMessage, StyleProfile
-
-
-class LLMClient(ABC):
-    @abstractmethod
-    def classify_email(self, message: EmailMessage, custom_dimensions: list[str] | None = None) -> EmailJudgment:
-        raise NotImplementedError
-
-    @abstractmethod
-    def draft_reply(self, message: EmailMessage, style: StyleProfile) -> str:
-        raise NotImplementedError
-
-    @abstractmethod
-    def summarize_newsletters(self, messages: list[EmailMessage]) -> str:
-        raise NotImplementedError
+from mailtidy.data.models import Category, EmailJudgment, EmailMessage, StyleProfile
+from mailtidy.integrations.llm.base import LLMClient
 
 
 class HeuristicLLMClient(LLMClient):
-    """Local fallback that mimics LLM-shaped outputs for development and tests."""
+    """关键词启发式分类器，作为真实 LLM 的最终兜底。"""
 
     def classify_email(self, message: EmailMessage, custom_dimensions: list[str] | None = None) -> EmailJudgment:
+        """根据简单关键词把邮件归类。
+
+        命中顺序按"误判代价"从低到高排：促销最先判（误判最不痛），
+        actionable / important 放后面（更需要精准）。
+        """
         text = f"{message.sender} {message.subject} {message.snippet}".lower()
+        # 兜底分类：未命中关键词时按"通知"处理，置信度故意压低，
+        # 让 policy 层不会因此触发归档 / 标已读
         category = Category.NOTIFICATION
         confidence = 0.72
         urgency = 2
@@ -58,6 +59,7 @@ class HeuristicLLMClient(LLMClient):
         )
 
     def draft_reply(self, message: EmailMessage, style: StyleProfile) -> str:
+        """生成一份保守的占位草稿，故意留 ``[需要你补充]`` 让用户必须看一眼。"""
         opener = style.opening_patterns[0] if style.opening_patterns else "Hi"
         closer = style.closing_patterns[0] if style.closing_patterns else "Best"
         signature = f"\n{style.signature}" if style.signature else ""
@@ -80,6 +82,10 @@ class HeuristicLLMClient(LLMClient):
         category: Category,
         custom_dimensions: list[str],
     ) -> dict[str, object]:
+        """为用户自定义维度填值。
+
+        未识别的维度统一返回 "unknown"，避免 LLM 客户端哑掉时上层拿到 KeyError。
+        """
         values: dict[str, object] = {}
         text = f"{message.subject} {message.snippet}".lower()
         for dimension in custom_dimensions:
@@ -93,3 +99,6 @@ class HeuristicLLMClient(LLMClient):
             else:
                 values[key] = "unknown"
         return values
+
+
+__all__ = ["HeuristicLLMClient"]

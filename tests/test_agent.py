@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import unittest
 
-from mailtidy.agent import MailTidyAgent
-from mailtidy.connectors import MockEmailConnector
-from mailtidy.llm import HeuristicLLMClient
+from mailtidy.agent.legacy import MailTidyAgent
+from mailtidy.integrations.email.mock import MockEmailConnector
+from mailtidy.integrations.llm.heuristic import HeuristicLLMClient
 
 
 class MailTidyAgentTest(unittest.TestCase):

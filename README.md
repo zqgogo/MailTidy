@@ -9,14 +9,14 @@ risky actions, and learns user preferences over time.
 
 - Product and agent design: [docs/agent-design.md](docs/agent-design.md)
 - Python agent core: `mailtidy/`
-- Demo CLI with mock email data: `python -m mailtidy.cli run-cleanup --demo`
+- Demo CLI with mock email data: `python -m mailtidy.interfaces.cli run-cleanup --demo`
 
 ## Quick start
 
 ```bash
-python -m mailtidy.cli run-cleanup --demo
-python -m mailtidy.cli daily-brief --demo
-python -m mailtidy.cli subscription-scan --demo
+python -m mailtidy.interfaces.cli run-cleanup --demo
+python -m mailtidy.interfaces.cli daily-brief --demo
+python -m mailtidy.interfaces.cli subscription-scan --demo
 ```
 
 Run tests:

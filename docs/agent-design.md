@@ -455,7 +455,51 @@ Agent 的智能不来自"我们写的 if-else"，而来自 **LLM 在合适的时
 | `apply_action(id, action, args)` | 邮件动作（archive / label / star / mark_read） | 高 | 高风险动作前必须 `ask_user` |
 | `ask_user(question, options?)` | 把任务挂起，向用户提问 | 高 | 用户回答会触发学习信号 |
 
-#### 2.3.2 LLM 角色边界
+#### 2.3.2 专用 LLM 层
+
+MailTidy 必须有独立的 `mailtidy/llm/` 层，不能把模型能力散落在 `agent/`、`tools/` 或具体 API adapter 里。它的职责是：**统一抽象、灵活替换、模型路由、调用统计、成本归因、展示数据源**。
+
+目录职责：
+
+| 模块 | 负责什么 |
+| --- | --- |
+| `llm/base.py` | `LLMClient` 稳定接口、`ModelProfile` 模型画像（provider / context window / 是否本地 / 单价） |
+| `llm/router.py` | `LLMRouter` / `ModelRoute`，按 purpose 选择模型：分类可用便宜模型，深度思考用强模型，断网降级到本地 / heuristic |
+| `llm/usage.py` | `LLMUsage` / `LLMCallRecord` / `LLMUsageTracker`，记录 input token、output token、预估成本、task_id、step_id、fallback_from |
+| `integrations/llm/heuristic.py` | 本地启发式兜底，成本 0，CI / 断网可跑 |
+| `integrations/llm/local.py` | 本地模型适配占位：Ollama / LM Studio / llama.cpp server 等 |
+| `integrations/llm/openai.py` | OpenAI API adapter |
+| `integrations/llm/anthropic.py` | Anthropic API adapter |
+
+替换模型只允许发生在两处：
+
+1. **配置层**：用户选择 `default_model`、不同 purpose 的 route、预算上限，例如 `classify=local-qwen`、`deep_think=gpt-4.1`、`fallback=heuristic`。
+2. **adapter 层**：新增一个实现 `LLMClient` 的 client，例如 `LocalLLMClient` / `OpenAILLMClient` / `AnthropicLLMClient`。
+
+Agent 主循环、tools、skills 不能直接 import OpenAI / Anthropic SDK；只能依赖 `mailtidy.llm.LLMClient` 或 `LLMRouter`。这样才能做到：
+
+- 从 OpenAI 切到 Anthropic / 本地模型，不改业务逻辑。
+- 同一个任务里混用多个模型，例如"便宜模型粗分 + 强模型复核高风险 + 本地模型兜底"。
+- 每次调用都能统一记录 token、耗时、模型、供应商、预估成本，并进入 §2.5 的成本卡。
+- 本地模型成本显示为 `$0.00`，但仍显示 token / 耗时 / 模型名，避免"免费但不可观测"。
+
+成本与展示必须使用 `LLMCallRecord` 作为原始数据，不能靠报告字符串临时拼：
+
+```json
+{
+  "task_id": "cleanup-2026-05-11-001",
+  "step_id": "step-004",
+  "purpose": "classify_email",
+  "model": "local-qwen3-8b",
+  "provider": "local",
+  "input_tokens": 1200,
+  "output_tokens": 180,
+  "estimated_cost": 0,
+  "fallback_from": "openai-default"
+}
+```
+
+#### 2.3.3 LLM 角色边界
 
 **LLM 真正负责的事**（决策中枢）：
 
@@ -774,6 +818,8 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 
 这一节直接对应到代码：
 
+- `llm/usage.py`：LLM 调用记录、token 统计、按模型 / provider 聚合，作为成本卡的数据源。
+- `llm/router.py`：按任务 purpose 选择模型、记录 fallback_from，支撑"本地 / API 灵活替换"。
 - `agent/state.py`：实时进度、预算消耗字段，必须能被 UI / CLI 轮询读取。
 - `agent/trace.py`：每一步思考流落盘格式，对应 `--show-thinking` 输出。
 - `ops/cost.py`（待新增）：`estimate_cost`、按 `(task_id, step_id, tool_name)` 累计 token、月度汇总、预警。
@@ -1193,7 +1239,7 @@ running ──── checkpoint ──── checkpoint ──── checkpoint 
 
 ### 5.1 目录结构改动
 
-旧版根目录所有职责都堆在 7 个顶层 .py 里：`agent.py` 同时承担 SOP 编排、业务流程入口和部分决策；`memory.py` 同时放偏好、日志、存储；`connectors.py` 把 Mock 与未来真实邮箱混在同一层；`reports.py` 服务多个 SOP 却没有和任务记录打通。本次重构已经按 7 层拆开，**根目录的旧 .py 全部物理删除**，所有调用方（测试、CLI、文档示例）都迁到新路径。
+旧版根目录所有职责都堆在 7 个顶层 .py 里：`agent.py` 同时承担 SOP 编排、业务流程入口和部分决策；`memory.py` 同时放偏好、日志、存储；`connectors.py` 把 Mock 与未来真实邮箱混在同一层；`reports.py` 服务多个 SOP 却没有和任务记录打通。本次重构已经按 8 层拆开，**根目录的旧 .py 全部物理删除**，所有调用方（测试、CLI、文档示例）都迁到新路径。
 
 #### 5.1.1 当前结构（搬迁已完成，根目录无遗留）
 
@@ -1222,17 +1268,17 @@ tests/
 | `mailtidy/agent.py` | `mailtidy/agent/legacy.py`（`mailtidy.agent` 包 re-export `MailTidyAgent`） | 已删除 |
 | `mailtidy/cli.py` | `mailtidy/interfaces/cli.py`（`python -m mailtidy.interfaces.cli`） | 已删除 |
 | `mailtidy/connectors.py` | `mailtidy/integrations/email/base.py` + `mock.py` | 已删除 |
-| `mailtidy/llm.py` | `mailtidy/integrations/llm/base.py` + `heuristic.py` | 已删除 |
+| `mailtidy/llm.py` | `mailtidy/llm/` 专用层 + `mailtidy/integrations/llm/` 具体 adapter | 已删除单文件，已升级为包目录 |
 | `mailtidy/memory.py` | `mailtidy/data/memory.py` | 已删除 |
 | `mailtidy/models.py` | `mailtidy/data/models.py` | 已删除 |
 | `mailtidy/policies.py` | `mailtidy/agent/policies.py`（决策属于 Agent 内核） | 已删除 |
 | `mailtidy/reports.py` | `mailtidy/data/reports.py` | 已删除 |
 
-> 之前的迁移过程中曾保留过一轮 ≤ 25 行的兼容 shim；由于尚未有外部用户依赖旧路径，本次直接清空 shim，避免日后两套入口分歧。如果未来要为下游再开兼容入口，可在根目录加新的 shim，但**默认主路径只剩 7 层包目录**。
+> 之前的迁移过程中曾保留过一轮 ≤ 25 行的兼容 shim；由于尚未有外部用户依赖旧路径，本次直接清空 shim，避免日后两套入口分歧。如果未来要为下游再开兼容入口，可在根目录加新的 shim，但**默认主路径只剩包目录分层**。
 
 #### 5.1.2 目标结构（Agent 化后的清晰分层）
 
-目标不是简单多建几个文件夹，而是把职责拆成 7 层：`agent` 负责运行循环，`skills` 负责业务 SOP，`tools` 负责 LLM 可调用能力，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。
+目标不是简单多建几个文件夹，而是把职责拆成 8 层：`agent` 负责运行循环，`skills` 负责业务 SOP，`tools` 负责 LLM 可调用能力，`llm` 负责模型抽象 / 路由 / 统计 / 成本归因，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。
 
 ```text
 mailtidy/
@@ -1271,6 +1317,12 @@ mailtidy/
     user.py                      ask_user
     actions.py                   apply_action（archive / label / star / mark_read）
 
+  llm/                           专用 LLM 层：模型抽象、路由、统计、成本
+    __init__.py
+    base.py                      LLMClient / ModelProfile
+    router.py                    ModelRoute / LLMRouter（按 purpose 选模型 + fallback）
+    usage.py                     LLMUsage / LLMCallRecord / LLMUsageTracker
+
   data/                          数据模型、数据库、任务记录、记忆与学习
     __init__.py
     models.py                    EmailMessage / EmailJudgment / AgentPlan 等核心模型
@@ -1307,8 +1359,8 @@ mailtidy/
       outlook.py                 OutlookConnector
     llm/
       __init__.py
-      base.py                    LLMClient 抽象
       heuristic.py               HeuristicLLMClient（CI 和降级保底）
+      local.py                   LocalLLMClient（Ollama / LM Studio / llama.cpp server）
       openai.py                  OpenAI tool-use 实现
       anthropic.py               Anthropic tool-use 实现
     notification/
@@ -1356,6 +1408,7 @@ mailtidy/
 | `agent/` | 主循环、预算、退出、恢复、trace、状态推进、深度思考、上下文压缩 | 具体邮箱 API、具体 SOP 业务细节 |
 | `skills/` | 收件箱清理、日报、订阅扫描、回复草稿等高层任务 | 直接调用 LLM、直接写数据库、直接动邮箱 |
 | `tools/` | 给 LLM 调用的小工具，带 schema、风险等级、限频 | 自己决定业务目标或长期偏好 |
+| `llm/` | LLM 抽象、模型路由、token / 成本统计、调用记录、fallback 归因 | 具体供应商 SDK、邮件业务规则 |
 | `data/` | 数据模型、任务记录、数据库、记忆、学习、报告 schema、摘要与证据索引 | 直接访问 Gmail / Outlook / Slack |
 | `rules/` | 自定义规则解析、匹配、冲突处理 | 执行邮箱动作 |
 | `research/` | 外部事实核查、风险评级、防钓鱼 | 直接归档 / 删除 / 发送邮件 |
@@ -1369,7 +1422,7 @@ mailtidy/
 
 | 顺序 | 改动 | 状态 | 备注 |
 | --- | --- | --- | --- |
-| 1 | 新建 `integrations/email/`、`integrations/llm/`，迁移 `connectors.py`、`llm.py` | ✅ | 真实实现已在新位置，旧顶层文件已删除 |
+| 1 | 新建 `integrations/email/`，迁移 `connectors.py`；新建 `integrations/llm/` 放供应商 / 本地模型 adapter | ✅ | 真实实现已在新位置，旧顶层文件已删除 |
 | 2 | 新建 `data/`，迁移 `models.py`、`memory.py`、`reports.py` | ✅ | 真实实现已在新位置，旧顶层文件已删除 |
 | 3 | 新建 `skills/`，把 SOP 从 `agent.py` 拆出 | ⏳ | `skills/{inbox_cleanup,daily_brief,subscription_scan,draft_replies}.py` 当前是对 `agent.legacy.MailTidyAgent` 的薄 wrapper；Phase 1 替换成独立实现 |
 | 4 | 新建 `tools/`，把 connector / memory / rule / research / action 包成 LLM 可调用工具 | ⏳ | 命名空间已建好，`Tool` schema 与限频是 Phase 1 |
@@ -1378,6 +1431,7 @@ mailtidy/
 | 7 | 新建 `interfaces/`、`ops/`，迁移 CLI、配置、调度、审计 | ✅ | `mailtidy.interfaces.cli` 是真实实现，`python -m mailtidy.interfaces.cli` 是新入口 |
 | 8 | 把 `policies.py` 归入 `agent/`（决策属于内核） | ✅ | `mailtidy.agent.policies.DecisionPolicy` 是真实实现，旧 `policies.py` 已删除 |
 | 9 | 删除根目录所有兼容 shim，把测试 / README / docs 全部切到新路径 | ✅ | 根目录只剩 `__init__.py` 一个文件 |
+| 10 | 新建专用 `llm/` 层，承接模型抽象、路由、token / 成本统计 | ✅ | `LLMClient` 已从 `integrations/llm/base.py` 上移到 `llm/base.py`，`integrations/llm/base.py` 已删除 |
 
 旧的顶层 `agent.py` / `cli.py` / `connectors.py` / `llm.py` / `memory.py` / `models.py` / `policies.py` / `reports.py` 全部物理删除，根目录只保留 `__init__.py`。`mailtidy.agent` 是包目录而不是单文件模块，`from mailtidy.agent import MailTidyAgent` 通过 `agent/__init__.py` re-export 自 `agent/legacy.py`。
 
@@ -1388,6 +1442,7 @@ mailtidy/
 **已完成（流水线层）**：
 
 - `EmailConnector` / `LLMClient` 抽象接口。
+- 专用 `llm/` 层：`ModelProfile`、`LLMRouter`、`LLMUsageTracker`、`LLMCallRecord`，为灵活换模型和成本展示打底。
 - `MockEmailConnector` 本地模拟邮箱；`HeuristicLLMClient` 关键词回退分类器。
 - 邮件分类的 7 类枚举。
 - 基于置信度阈值的决策策略（archive ≥ 0.85，mark_read ≥ 0.82）。

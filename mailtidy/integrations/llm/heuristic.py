@@ -11,11 +11,20 @@ from __future__ import annotations
 import re
 
 from mailtidy.data.models import Category, EmailJudgment, EmailMessage, StyleProfile
-from mailtidy.integrations.llm.base import LLMClient
+from mailtidy.llm.base import LLMClient, ModelProfile
 
 
 class HeuristicLLMClient(LLMClient):
     """关键词启发式分类器，作为真实 LLM 的最终兜底。"""
+
+    @property
+    def profile(self) -> ModelProfile:
+        return ModelProfile(
+            name="heuristic",
+            provider="local",
+            supports_tools=False,
+            supports_local=True,
+        )
 
     def classify_email(self, message: EmailMessage, custom_dimensions: list[str] | None = None) -> EmailJudgment:
         """根据简单关键词把邮件归类。

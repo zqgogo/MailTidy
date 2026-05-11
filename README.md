@@ -10,6 +10,7 @@ risky actions, and learns user preferences over time.
 - Product and agent design: [docs/agent-design.md](docs/agent-design.md)
 - Python agent core: `mailtidy/`
 - Demo CLI with mock email data: `python -m mailtidy.interfaces.cli run-cleanup --demo`
+- Dedicated LLM layer: `mailtidy/llm/` for model routing, usage tracking, and cost attribution.
 
 ## Quick start
 
@@ -27,6 +28,7 @@ python -m unittest
 
 ## Next integrations
 
-The implementation currently ships with clean interfaces and a mock connector. To
-connect real inboxes, implement `EmailConnector` for Gmail or Outlook OAuth and
-plug in a production `LLMClient`.
+The implementation currently ships with clean interfaces, a mock connector, and
+a dedicated LLM layer. To connect real inboxes, implement `EmailConnector` for
+Gmail or Outlook OAuth and plug in any `LLMClient` adapter: local models,
+OpenAI, Anthropic, or another API provider.

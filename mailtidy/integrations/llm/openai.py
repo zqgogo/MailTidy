@@ -2,8 +2,16 @@
 
 from __future__ import annotations
 
-from mailtidy.integrations.llm.base import LLMClient
+from mailtidy.llm.base import LLMClient, ModelProfile
 
 
 class OpenAILLMClient(LLMClient):
     """Future OpenAI implementation."""
+
+    @property
+    def profile(self) -> ModelProfile:
+        return ModelProfile(
+            name="openai-default",
+            provider="openai",
+            supports_tools=True,
+        )

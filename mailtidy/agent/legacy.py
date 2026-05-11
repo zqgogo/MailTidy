@@ -4,7 +4,8 @@
 -> 生成执行计划 -> 执行 -> 出报告"几件事串成 SOP 工作流。该文件刻意保持薄：
 所有真正的"决策智慧"都委托给：
 
-- :mod:`mailtidy.integrations.llm`：分类、草稿、摘要等 NLP 能力。
+- :mod:`mailtidy.llm`：稳定 LLM 抽象、路由、统计。
+- :mod:`mailtidy.integrations.llm`：具体模型 / API / 本地运行时适配。
 - :mod:`mailtidy.agent.policies`：哪些邮件做哪些动作、什么时候要确认。
 - :mod:`mailtidy.integrations.email`：与真实 / Mock 邮箱的 IO 边界。
 - :mod:`mailtidy.data.memory`：长期偏好与历史。
@@ -41,7 +42,7 @@ from mailtidy.data.reports import (
     subscriptions_markdown,
 )
 from mailtidy.integrations.email.base import EmailConnector
-from mailtidy.integrations.llm.base import LLMClient
+from mailtidy.llm.base import LLMClient
 
 
 class MailTidyAgent:

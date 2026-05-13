@@ -18,7 +18,7 @@
   - 2.4 决策、确认与规则
   - 2.5 透明度与掌控感
   - 2.6 用户执行与配置面
-- 三、Skills（SOP 详细）
+- 三、Agent Skills（工作流规则）
   - 3.1 收件箱清理
   - 3.2 智能回复草拟
   - 3.3 订阅费扫描器
@@ -80,7 +80,7 @@ MailTidy 必须是一个 **Agent**，不是更花哨的自动化脚本。两者�
 | 订阅费扫描器 | 从邮箱中找出付费订阅和月度支出 | 每月 + 手动 | demo 骨架 |
 | 邮件摘要日报 | 生成 2 分钟可读的早晨 briefing | 每天 7:30 | demo 骨架 |
 
-详细见 §三 Skills。SOP 不再是孤立命令，而是 Agent 主循环里**可被组合的子任务**——清理时可以自动触发 daily-brief、订阅扫描发现新订阅可以挂起问用户、自然语言指令可以串联研究 + 规则 + 邮件动作。
+详细见 §三 Agent Skills。SOP 不再是孤立命令，而是 Agent 主循环里**可被组合的子任务**——清理时可以自动触发 daily-brief、订阅扫描发现新订阅可以挂起问用户、自然语言指令可以串联研究 + 规则 + 邮件动作。
 
 ---
 
@@ -1056,9 +1056,27 @@ LLM 调用 6 次（OpenAI gpt-4o-mini × 5 + heuristic × 1 兜底）
 
 ---
 
-## 三、Skills（SOP 详细）
+## 三、Agent Skills（工作流规则）
 
-四条 SOP 是 Agent 主循环中可以被组合调用的高层任务。它们在 Phase 1 之前是独立 CLI 命令，Phase 1 之后会被改造成 agent_loop 的 entry-points，并支持互相调用。
+这里的 **Skill 不是工具代码，也不是某个可执行函数**。Skill 是给 LLM / Agent 看的工作流规则：它描述“这类任务应该怎么检查、按什么顺序查、去哪里获取证据、哪些风险必须停下来、输出必须包含什么”。真正执行动作的是 `tools/` 里的可调用能力，例如 `list_emails`、`read_email`、`match_rules`、`save_draft`、`ask_user`。
+
+因此三者边界是：
+
+| 概念 | 本质 | 例子 |
+| --- | --- | --- |
+| Skill | 工作流指南 / SOP rule，辅助 LLM 决策 | “做订阅扫描时先找账单邮件，再按服务去重，金额不确定要标注来源” |
+| Tool | LLM 可调用的代码能力，带 schema / 风险等级 / 限频 | `search_email`、`read_email`、`domain_check`、`apply_action` |
+| SOP / Task | 一次具体任务目标，由 Agent 按 Skill 指南选择 Tools 完成 | “扫描最近 6 个月订阅费” |
+
+四条内置 Skill 是 Agent 主循环中可以被加载和组合的高层工作流规则，放在 `mailtidy/agent/skills/*.md`。它们以 Markdown 为主，便于审阅、版本管理和用户自定义。用户新增或编辑的 skill 放在 `.mailtidy/skills/*.md`，运行时与内置 skill 合并；同名用户 skill 覆盖内置 skill。
+
+Skill 文档必须包含：
+
+1. **When To Use**：什么任务适合加载这个 skill。
+2. **Workflow**：推荐检查顺序和推理步骤。
+3. **Evidence**：应该从哪些工具取证、如何保留引用、事实和推断如何分开。
+4. **Stop Conditions**：哪些情况必须问用户、降级或停止。
+5. **Output**：最终报告 / 草稿 / 建议必须包含哪些字段。
 
 ### 3.1 SOP 1：收件箱清理
 
@@ -1535,7 +1553,7 @@ running ──── checkpoint ──── checkpoint ──── checkpoint 
 
 ### 5.1 目录结构
 
-代码按职责拆成 8 层：`agent` 负责运行循环，`skills` 负责业务 SOP，`tools` 负责 LLM 可调用能力，`llm` 负责模型抽象 / 路由 / 统计 / 成本归因，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。根目录只保留 `__init__.py`。
+代码按职责拆成 7 层：`agent` 负责运行循环和 Agent Skills（Markdown 工作流规则），`tools` 负责 LLM 可调用代码能力，`llm` 负责模型抽象 / 路由 / 统计 / 成本归因，`data` 负责模型和持久化，`integrations` 负责外部系统，`interfaces` 负责 CLI/UI/通知，`ops` 负责运行可观测性。根目录只保留 `__init__.py`。
 
 #### 5.1.1 完整目录
 
@@ -1555,14 +1573,12 @@ mailtidy/
     exits.py                     9 种退出条件 + 死循环检测
     recovery.py                  启动恢复检查、resume / continue 语义
     trace.py                     thought / tool / observation / exit_check 逐步落盘
-
-  skills/                        业务能力：可被 Agent 调度的 SOP
-    __init__.py
-    inbox_cleanup.py             收件箱清理
-    daily_brief.py               邮件摘要日报
-    subscription_scan.py         订阅费扫描
-    draft_replies.py             智能回复草拟
-    base.py                      Skill 抽象、输入输出 schema、默认预算
+    skills/                      Agent Skills：Markdown 工作流规则，不直接执行动作
+      README.md                  Skill 编写约定
+      inbox-cleanup.md           收件箱清理 workflow rule
+      daily-brief.md             邮件摘要日报 workflow rule
+      subscription-scan.md       订阅费扫描 workflow rule
+      draft-replies.md           智能回复草拟 workflow rule
 
   tools/                         LLM 可调用工具：小、稳定、可限频
     __init__.py
@@ -1653,6 +1669,7 @@ mailtidy/
 .mailtidy/
   memory.db                      加密 SQLite：偏好 + 规则 + 实体
   memory.json                    降级时的备份
+  skills/                        用户新增 / 编辑的 Agent Skills（Markdown，覆盖或扩展内置 skill）
   tasks/                         任务记录 JSON 文件
   reports/                       完成 / 半成品报告 Markdown
   traces/                        主循环 trace（jsonl）
@@ -1665,8 +1682,8 @@ mailtidy/
 
 | 层 | 负责什么 | 不负责什么 |
 | --- | --- | --- |
-| `agent/` | 主循环、预算、退出、恢复、trace、状态推进、深度思考、上下文压缩 | 具体邮箱 API、具体 SOP 业务细节 |
-| `skills/` | 收件箱清理、日报、订阅扫描、回复草稿等高层任务 | 直接调用 LLM、直接写数据库、直接动邮箱 |
+| `agent/` | 主循环、预算、退出、恢复、trace、状态推进、深度思考、上下文压缩、加载 Markdown Agent Skills | 具体邮箱 API、直接执行邮箱动作 |
+| `agent/skills/*.md` | 收件箱清理、日报、订阅扫描、回复草稿等工作流规则：适用条件、检查步骤、证据来源、风险停机点、输出要求 | 实现工具逻辑、直接调用 LLM、直接写数据库、直接动邮箱 |
 | `tools/` | 给 LLM 调用的小工具，带 schema、风险等级、限频 | 自己决定业务目标或长期偏好 |
 | `llm/` | LLM 抽象、模型路由、token / 成本统计、调用记录、fallback 归因 | 具体供应商 SDK、邮件业务规则 |
 | `data/` | 数据模型、任务记录、数据库、记忆、学习、报告 schema、摘要与证据索引 | 直接访问 Gmail / Outlook / Slack |
@@ -1685,7 +1702,7 @@ mailtidy/
 | `agent/policies.py` | `DecisionPolicy` | ✅ 实现，被 `agent.legacy` 使用 |
 | `agent/legacy.py` | `MailTidyAgent`（流水线 SOP 编排） | ✅ 实现，过渡用；Phase 1 后由 `agent/loop.py` 取代 |
 | `agent/{loop,state,context,compression,deep_think,exits,recovery,trace,planner,executor}.py` | Reason-Act-Observe 内核 | ⏳ 占位 dataclass / enum，Phase 1 填充 |
-| `skills/*.py` | 四条 SOP | ⏳ 当前是对 `agent.legacy` 的薄 wrapper；Phase 1 改为直连 `agent/loop.py` |
+| `agent/skills/*.md` | 四条 workflow rule / SOP 指南 | ✅ 内置 Markdown skill 就位；Phase 1 接入 skill loader，支持 `.mailtidy/skills/*.md` 用户覆盖 |
 | `tools/*.py` | LLM 可调用工具 | ⏳ 命名空间就位；`Tool` schema、限频、风险等级 Phase 1 |
 | `llm/{base,router,usage}.py` | 模型抽象 / 路由 / 统计 | ✅ 接口与统计结构就位；Phase 1 接进 `agent/loop.py` |
 | `data/{models,memory,reports,categories,summaries,tasks,learning,database,repositories}.py` | 数据模型与持久化 | ✅ 模型 / 记忆 / 报告 / 分类已实现；任务记录、learning、SQLite Phase 1-2 |

@@ -1,34 +1,82 @@
 # MailTidy
 
-MailTidy is an email agent that triages inboxes, drafts replies, finds subscriptions,
-and produces daily briefings. It is designed as an agent, not a one-off automation:
-it reasons over email context, creates an execution plan, asks for confirmation on
-risky actions, and learns user preferences over time.
+MailTidy is an email agent that triages inboxes, drafts replies, finds
+subscriptions, and produces daily briefings. It is designed as an **agent**,
+not a one-off automation: it reasons over email context, creates an
+execution plan, asks for confirmation on risky actions, persists task state
+to disk so it can resume after a `kill -9`, and learns user preferences over
+time.
+
+The project was originally prototyped in Python; it has since been migrated
+to TypeScript and is built on
+[**@earendil-works/pi-agent-core**](https://github.com/earendil-works/pi)
+for the agent runtime and `@earendil-works/pi-ai` for multi-provider LLM
+calls. The original Python prototype is preserved at [`old/`](old/) for
+reference; do not extend it.
 
 ## What is included
 
+- TypeScript agent core: `src/`
+- Demo CLI with mock email data:
+  ```bash
+  npm install
+  npm run demo:cleanup
+  npm run demo:brief
+  npm run demo:subscriptions
+  npm run demo:drafts
+  ```
+- Task records + checkpoint store for crash-safe runs (`.mailtidy/tasks/`,
+  `.mailtidy/checkpoints/`); see [docs/agent-design.md](docs/agent-design.md)
+  §2.1.7 and §5.1 for the recovery model.
+- Recovery scan: `npm run dev recover` (or `npx tsx src/interfaces/cli.ts
+  recover`) lists unfinished tasks and prompts `[r]/[c]/[s]/[d]`.
+- Skill markdown files: [`src/agent/skills/`](src/agent/skills/)
 - Product and agent design: [docs/agent-design.md](docs/agent-design.md)
-- Python agent core: `mailtidy/`
-- Demo CLI with mock email data: `python -m mailtidy.interfaces.cli run-cleanup --demo`
-- Dedicated LLM layer: `mailtidy/llm/` for model routing, usage tracking, and cost attribution.
 
 ## Quick start
 
 ```bash
-python -m mailtidy.interfaces.cli run-cleanup --demo
-python -m mailtidy.interfaces.cli daily-brief --demo
-python -m mailtidy.interfaces.cli subscription-scan --demo
+nvm use         # requires Node 20+
+npm install
+npm run demo:cleanup      # runs the full inbox-cleanup SOP on mock data
+npm test                  # vitest, includes recovery + demo smoke tests
+npm run typecheck         # strict tsc with no emit
 ```
 
-Run tests:
+## Project layout (top level)
 
-```bash
-python -m unittest
 ```
+src/                      # TypeScript source, Phase 0 + recovery scaffold
+  agent/                  # main loop, recovery, exits, policies, skills/*.md
+  data/                   # models, memory, tasks, reports, learning
+  integrations/           # email / LLM / notification adapters
+  interfaces/             # CLI (commander), readline prompts, future web / desktop
+  llm/                    # provider-neutral LLMClient interface + Router + Usage
+  ops/                    # config / logging / scheduler / audit (placeholders)
+  research/               # research-style analysis (Phase 3 placeholders)
+  rules/                  # custom rule engine (Phase 3 placeholders)
+  tools/                  # ToolDefinition + per-tool wrappers (Phase 1 placeholders)
+tests/                    # vitest suite
+old/                      # DEPRECATED Python prototype, kept for reference
+docs/agent-design.md      # canonical product + technical design doc
+```
+
+The active progress table lives in [docs/agent-design.md §5.2](docs/agent-design.md)
+and is updated at the end of every work session.
+
+## Status today
+
+Phase 0 (流水线骨架) is done in TS; recovery scaffolding (task records +
+checkpoint store + CLI recovery scan + SIGINT handler) is in place but the
+end-to-end "resume after kill -9" verification waits on Phase 1
+(pi-agent-core main loop). See [docs/agent-design.md §5.2](docs/agent-design.md)
+for the per-module status.
 
 ## Next integrations
 
-The implementation currently ships with clean interfaces, a mock connector, and
-a dedicated LLM layer. To connect real inboxes, implement `EmailConnector` for
-Gmail or Outlook OAuth and plug in any `LLMClient` adapter: local models,
-OpenAI, Anthropic, or another API provider.
+- Phase 1: wire `@earendil-works/pi-agent-core` into `src/agent/loop.ts`,
+  implement the 13 hard constraints, rewrite the 4 SOPs as loop
+  entry-points, and hook `afterToolCall` to the checkpoint store for
+  end-to-end `kill -9` recovery.
+- Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
+  scope first; writes opened one at a time after a week of dry-run).

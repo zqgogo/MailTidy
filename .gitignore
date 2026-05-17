@@ -1,3 +1,23 @@
+# Project runtime state
 .mailtidy/
+
+# Node / TypeScript
+node_modules/
+dist/
+*.tsbuildinfo
+.npm/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.env
+.env.local
+.env.*.local
+
+# Editor / OS
+.DS_Store
+.vscode/
+.idea/
+
+# Legacy Python (kept under old/ for reference)
 __pycache__/
 *.py[cod]

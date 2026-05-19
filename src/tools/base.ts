@@ -19,3 +19,5 @@ export interface ToolDefinition<TArgs = unknown, TResult = unknown> {
   rateLimit?: { perTask?: number; perMinute?: number };
   invoke(args: TArgs): Promise<TResult>;
 }
+
+export type AnyToolDefinition = ToolDefinition<any, any>;

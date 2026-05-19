@@ -1060,16 +1060,16 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 
 - vitest 7 个测试通过：`recovery.test.ts` 覆盖任务生命周期 / checkpoint 读写 / 用户输入解析；`demo.test.ts` 覆盖 cleanup + draft + subscription scan 端到端
 - `tsc --noEmit` strict 模式 0 错
-- Phase 1.1 第一批 tool schema 已落地：`fetch_recent_email` / `search_email` / `classify_email` / `apply_email_action` / `ask_user`，并新增 `createMailTidyTools()` 聚合注册入口；`tests/tools.test.ts` 覆盖 registry / dry-run / mock connector 写动作
+- Phase 1.1 工具集已**全部就位**：email (`fetch_recent_email` / `search_email`) / classify (`classify_email`) / actions (`apply_email_action`) / user (`ask_user`) / memory (`recall_memory` / `write_memory`) 是实功能；rules (`match_rules`) / research (`web_search` / `verify_domain`) / history (`read_trace_slice` / `read_report_summary` / `read_original_record`) 是 schema-defined stub，schema + 限频齐全，后端等 Phase 1.8 / Phase 3。`createMailTidyTools()` 聚合注册入口；`tests/tools.test.ts` 5 个用例覆盖 registry / dry-run / memory 读写 / stub 行为
+- 测试 12/12 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
-- [src/agent/loop.ts](src/agent/loop.ts) 仍是 placeholder（throws）。Phase 1 把 pi `Agent` + `agentLoop` 接进来，挂 `beforeToolCall` / `afterToolCall` / `shouldStopAfterTurn` 钩子
+- [src/agent/loop.ts](src/agent/loop.ts) 仍是 placeholder（throws）。Phase 1.2 把 pi `Agent` + `agentLoop` 接进来，挂 `beforeToolCall` / `afterToolCall` / `shouldStopAfterTurn` 钩子，把 `createMailTidyTools()` 注册进去
 - "kill -9 → 重启 → 续跑" 端到端验收（验收点 d）等主循环上来 + `agentLoopContinue` 路径联通后才能跑
-- 真实 OpenAI / Anthropic 适配器（基于 `@earendil-works/pi-ai`）—— Phase 1
-- 工具层剩余占位：`memory.ts` / `rules.ts` / `research.ts` / `history.ts` 仍待 schema 化；第一批工具尚未接入 [src/agent/loop.ts](src/agent/loop.ts)
+- 真实 OpenAI / Anthropic 适配器（基于 `@earendil-works/pi-ai`）—— Phase 1.5
+- Phase 1.4：4 条 SOP 改写为 `runAgentLoop` 入口，[src/agent/legacy.ts](src/agent/legacy.ts) 暂留作对照
 - 学习层、自定义规则引擎、研究型分析、真实邮箱、Web UI
-- 本轮新增测试尚未复跑成功：本机 `npm install` 两次因网络 `ECONNRESET` 中断，`node_modules` 不完整，需依赖安装恢复后重跑 `npm test` + `npm run typecheck`
 
 ### 5.3 路线图（Phase 1-5）
 
@@ -1079,7 +1079,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 
 | # | 工作项 |
 | --- | --- |
-| 1.1 | 部分完成：第一批 [src/tools/](src/tools/) `ToolDefinition` 已覆盖 email / classify / action / user；剩余 memory / rules / research / history |
+| 1.1 | ✅ 完成：[src/tools/](src/tools/) 8 个工具集（10 个 ToolDefinition）全部就位 —— email / classify / action / user / memory 是实功能；rules / research / history 是 schema-defined stub（schema + 限频齐全，返回 "not yet implemented"），等 Phase 1.8 + Phase 3 把后端补上 |
 | 1.2 | 实现 [src/agent/loop.ts](src/agent/loop.ts)：包裹 pi `Agent` + `agentLoop`，实现 §2.6 的 15 条硬约束 |
 | 1.3 | 接通 `afterToolCall` → `CheckpointStore.persist` + `JsonTaskStore.update`，把 §2.10 的钩点全连上 |
 | 1.4 | 把 [src/agent/legacy.ts](src/agent/legacy.ts) 的四条 SOP 改写成 `runAgentLoop` 的 entry-point，**保持 CLI 兼容** |

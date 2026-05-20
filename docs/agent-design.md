@@ -1064,11 +1064,12 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.2 最小主循环已落地：[src/agent/loop.ts](src/agent/loop.ts) 不再 throw，入口会创建 `TaskRecord`，通过工具注册表执行 fetch → classify → plan → apply → report，并在每个 observe 后写 `CheckpointStore`。当前是 deterministic planner 版本，完整 pi `Agent` tool-use 推理在 1.3/1.4 替换内部实现
 - Phase 1.3a pi 工具适配层已落地：[src/tools/pi.ts](src/tools/pi.ts) 将 MailTidy `ToolDefinition` 转成 pi `AgentTool`，复用现有 JSON schema（TypeBox `Type.Unsafe` 包装），高风险工具默认 sequential；`tests/pi-tools.test.ts` 覆盖形状转换、执行与结构化 details 保留
 - Phase 1.3b pi lifecycle hook 层已落地：[src/agent/piHooks.ts](src/agent/piHooks.ts) 提供 `beforeToolCall` 风险闸门、`afterToolCall` checkpoint + task progress 写盘、`shouldStopAfterTurn` step budget 停止判断；`tests/pi-hooks.test.ts` 覆盖高风险阻断与 checkpoint/任务进度持久化
-- 测试 18/18 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 1.3c pi Agent 工厂已落地：[src/agent/piAgent.ts](src/agent/piAgent.ts) 装配 system prompt、pi tools、checkpoint messages 与 lifecycle hooks；`tests/pi-agent.test.ts` 用 `registerFauxProvider()` 无网络实例化真实 pi `Agent`，覆盖 state 装配
+- 测试 19/19 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
-- Phase 1.3c：把 `src/tools/pi.ts` + `src/agent/piHooks.ts` 装配进 pi `Agent` / `agentLoop` 入口；现有 `runAgentLoop()` 的任务记录、checkpoint、工具注册边界保持不变
+- Phase 1.3d：把 `createMailTidyPiAgent()` 接入 `runAgentLoop()` / recovery continuation 路径；现有 deterministic cleanup loop 暂保留为 CI fallback
 - "kill -9 → 重启 → 续跑" 端到端验收（验收点 d）等主循环上来 + `agentLoopContinue` 路径联通后才能跑
 - 真实 OpenAI / Anthropic 适配器（基于 `@earendil-works/pi-ai`）—— Phase 1.5
 - Phase 1.4：4 条 SOP 改写为 `runAgentLoop` 入口，[src/agent/legacy.ts](src/agent/legacy.ts) 暂留作对照
@@ -1084,7 +1085,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | --- | --- |
 | 1.1 | ✅ 完成：[src/tools/](src/tools/) 8 个工具集（10 个 ToolDefinition）全部就位 —— email / classify / action / user / memory 是实功能；rules / research / history 是 schema-defined stub（schema + 限频齐全，返回 "not yet implemented"），等 Phase 1.8 + Phase 3 把后端补上 |
 | 1.2 | ✅ 完成最小版 [src/agent/loop.ts](src/agent/loop.ts)：任务记录先写盘、工具注册表执行、每步 checkpoint、step budget 退出；完整 pi `Agent` 接入顺延到 1.3 |
-| 1.3 | 进行中：✅ pi AgentTool 适配层；✅ pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；下一步装配 pi `Agent` / `agentLoop` 入口 |
+| 1.3 | 进行中：✅ pi AgentTool 适配层；✅ pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；✅ pi `Agent` 工厂；下一步接入 `runAgentLoop()` / `agentLoopContinue` |
 | 1.4 | 把 [src/agent/legacy.ts](src/agent/legacy.ts) 的四条 SOP 改写成 `runAgentLoop` 的 entry-point，**保持 CLI 兼容** |
 | 1.5 | 接入真实 LLM 的 tool-use ([src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [anthropic.ts](src/integrations/llm/anthropic.ts) 内部用 `@earendil-works/pi-ai`)；保留 `HeuristicLLMClient` 给 CI 用 |
 | 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |

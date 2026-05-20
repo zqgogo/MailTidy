@@ -70,9 +70,9 @@ Phase 0 (流水线骨架) is done in TS. Recovery scaffolding (task records +
 checkpoint store + CLI recovery scan + SIGINT handler) is in place, and Phase
 1.2 now has a minimal `runAgentLoop()` that writes task/checkpoint state while
 driving cleanup through the tool registry. Phase 1.3 has started with pi
-AgentTool adapters plus lifecycle hooks for risk gates, checkpoints, and stop
-conditions. End-to-end "resume after kill -9" still waits on the pi-agent-core
-continuation path. See
+AgentTool adapters, lifecycle hooks for risk gates/checkpoints/stop conditions,
+and a pi `Agent` factory tested against the faux provider. End-to-end "resume
+after kill -9" still waits on the pi-agent-core continuation path. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

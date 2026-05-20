@@ -66,17 +66,18 @@ and is updated at the end of every work session.
 
 ## Status today
 
-Phase 0 (流水线骨架) is done in TS; recovery scaffolding (task records +
-checkpoint store + CLI recovery scan + SIGINT handler) is in place but the
-end-to-end "resume after kill -9" verification waits on Phase 1
-(pi-agent-core main loop). See [docs/agent-design.md §5.2](docs/agent-design.md)
-for the per-module status.
+Phase 0 (流水线骨架) is done in TS. Recovery scaffolding (task records +
+checkpoint store + CLI recovery scan + SIGINT handler) is in place, and Phase
+1.2 now has a minimal `runAgentLoop()` that writes task/checkpoint state while
+driving cleanup through the tool registry. End-to-end "resume after kill -9"
+still waits on the pi-agent-core continuation path. See
+[docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: wire `@earendil-works/pi-agent-core` into `src/agent/loop.ts`,
-  implement the 13 hard constraints, rewrite the 4 SOPs as loop
-  entry-points, and hook `afterToolCall` to the checkpoint store for
-  end-to-end `kill -9` recovery.
+- Phase 1: replace the deterministic loop internals with
+  `@earendil-works/pi-agent-core` tool-use turns, rewrite the 4 SOPs as loop
+  entry-points, and hook `agentLoopContinue` for end-to-end `kill -9`
+  recovery.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

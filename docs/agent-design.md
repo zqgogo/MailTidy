@@ -1066,11 +1066,13 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.3b pi lifecycle hook 层已落地：[src/agent/piHooks.ts](src/agent/piHooks.ts) 提供 `beforeToolCall` 风险闸门、`afterToolCall` checkpoint + task progress 写盘、`shouldStopAfterTurn` step budget 停止判断；`tests/pi-hooks.test.ts` 覆盖高风险阻断与 checkpoint/任务进度持久化
 - Phase 1.3c pi Agent 工厂已落地：[src/agent/piAgent.ts](src/agent/piAgent.ts) 装配 system prompt、pi tools、checkpoint messages 与 lifecycle hooks；`tests/pi-agent.test.ts` 用 `registerFauxProvider()` 无网络实例化真实 pi `Agent`，覆盖 state 装配
 - Phase 1.3d pi runner 已落地：[src/agent/piRunner.ts](src/agent/piRunner.ts) 直接使用 pi 低层 `runAgentLoop` / `runAgentLoopContinue`，真正接入 `shouldStopAfterTurn`；[src/agent/loop.ts](src/agent/loop.ts) 支持 `engine: "pi"` 路由，默认 deterministic fallback 保持不变；`tests/pi-runner.test.ts` 和 `tests/loop.test.ts` 覆盖 faux provider tool-use 端到端
-- 测试 21/21 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 1.3e CLI recovery demo continue 已接通：[src/interfaces/cli.ts](src/interfaces/cli.ts) 的 `recover --demo` 在用户选择 `[c] continue` 时加载 checkpoint 并调用 `runMailTidyPiAgent({ checkpoint })`；非 demo 仍明确提示等待真实 pi model adapter
+- Phase 1.3f recovery continuation helper 已落地：[src/agent/recoveryContinue.ts](src/agent/recoveryContinue.ts) 把 interrupted task + checkpoint + pi model + tools 续跑到 completed；`tests/recovery-continue.test.ts` 覆盖临时 state 下 checkpoint continue → completed
+- 测试 22/22 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
-- Phase 1.3e：把 CLI recovery 的 `[c] continue` 从占位改成调用 `runMailTidyPiAgent({ checkpoint })`；随后做 kill/restart/continue 端到端验收
+- Phase 1.4：把四条 SOP CLI entry-point 从 `LegacyMailTidyAgent` 逐步改成 `runAgentLoop()` / pi runner；随后做 kill/restart/continue 端到端验收
 - "kill -9 → 重启 → 续跑" 端到端验收（验收点 d）等主循环上来 + `agentLoopContinue` 路径联通后才能跑
 - 真实 OpenAI / Anthropic 适配器（基于 `@earendil-works/pi-ai`）—— Phase 1.5
 - Phase 1.4：4 条 SOP 改写为 `runAgentLoop` 入口，[src/agent/legacy.ts](src/agent/legacy.ts) 暂留作对照
@@ -1086,7 +1088,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | --- | --- |
 | 1.1 | ✅ 完成：[src/tools/](src/tools/) 8 个工具集（10 个 ToolDefinition）全部就位 —— email / classify / action / user / memory 是实功能；rules / research / history 是 schema-defined stub（schema + 限频齐全，返回 "not yet implemented"），等 Phase 1.8 + Phase 3 把后端补上 |
 | 1.2 | ✅ 完成最小版 [src/agent/loop.ts](src/agent/loop.ts)：任务记录先写盘、工具注册表执行、每步 checkpoint、step budget 退出；完整 pi `Agent` 接入顺延到 1.3 |
-| 1.3 | 进行中：✅ pi AgentTool 适配层；✅ pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；✅ pi `Agent` 工厂；✅ pi runner + `runAgentLoop({ engine: "pi" })`；下一步接通 CLI recovery continue |
+| 1.3 | ✅ 完成：pi AgentTool 适配层；pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；pi `Agent` 工厂；pi runner + `runAgentLoop({ engine: "pi" })`；CLI `recover --demo` continue；recovery continuation helper + 测试 |
 | 1.4 | 把 [src/agent/legacy.ts](src/agent/legacy.ts) 的四条 SOP 改写成 `runAgentLoop` 的 entry-point，**保持 CLI 兼容** |
 | 1.5 | 接入真实 LLM 的 tool-use ([src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [anthropic.ts](src/integrations/llm/anthropic.ts) 内部用 `@earendil-works/pi-ai`)；保留 `HeuristicLLMClient` 给 CI 用 |
 | 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |

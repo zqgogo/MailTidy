@@ -16,12 +16,15 @@
 
 import { Command } from "commander";
 import path from "node:path";
+import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
 import { JsonMemoryStore } from "../data/memory.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
 import { LegacyMailTidyAgent } from "../agent/legacy.js";
+import { continueRecoveredTask } from "../agent/recoveryContinue.js";
 import { MockEmailConnector } from "../integrations/email/mock.js";
 import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
+import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
 
 interface RuntimePaths {
@@ -41,7 +44,7 @@ function resolvePaths(rootArg: string): RuntimePaths {
   };
 }
 
-async function runRecoveryScan(paths: RuntimePaths, prompter: Prompter): Promise<void> {
+async function runRecoveryScan(paths: RuntimePaths, prompter: Prompter, options: { demo?: boolean } = {}): Promise<void> {
   const tasks = new JsonTaskStore(paths.tasksDir);
   const checkpoints = new CheckpointStore(paths.checkpointsDir);
   const pending = await tasks.scanInterrupted();
@@ -58,9 +61,17 @@ async function runRecoveryScan(paths: RuntimePaths, prompter: Prompter): Promise
         console.error(`(rerun not implemented yet — keeping record ${task.taskId.slice(0, 8)})`);
         break;
       case "continue":
-        console.error(
-          `(continue requires the Phase 1 agent loop — skipping ${task.taskId.slice(0, 8)} for now)`,
-        );
+        if (!options.demo) {
+          console.error(
+            `(continue needs a real pi model adapter; rerun with recover --demo for the current faux-provider path)`,
+          );
+          break;
+        }
+        if (!checkpoint) {
+          console.error(`(no checkpoint found — cannot continue ${task.taskId.slice(0, 8)})`);
+          break;
+        }
+        await continueDemoTask(paths, task, checkpoint);
         break;
       case "drop":
         await tasks.purge(task.taskId);
@@ -71,6 +82,35 @@ async function runRecoveryScan(paths: RuntimePaths, prompter: Prompter): Promise
         console.error(`Skipped task ${task.taskId.slice(0, 8)}.`);
     }
     console.error("");
+  }
+}
+
+async function continueDemoTask(
+  paths: RuntimePaths,
+  task: TaskRecord,
+  checkpoint: NonNullable<Awaited<ReturnType<CheckpointStore["load"]>>>,
+): Promise<void> {
+  const faux = registerFauxProvider();
+  faux.setResponses([fauxAssistantMessage(`Resumed demo task ${task.taskId.slice(0, 8)}.`)]);
+  try {
+    const memoryStore = new JsonMemoryStore(paths.memory);
+    const memory = await memoryStore.load();
+    const connector = new MockEmailConnector();
+    const llm = new HeuristicLLMClient();
+    const result = await continueRecoveredTask(
+      {
+        tasks: new JsonTaskStore(paths.tasksDir),
+        checkpoints: new CheckpointStore(paths.checkpointsDir),
+        tools: createMailTidyTools({ connector, llm, memory }),
+        model: faux.getModel(),
+      },
+      task,
+      checkpoint,
+    );
+    console.error(`Continued task ${task.taskId.slice(0, 8)}: ${result.exit.reason}`);
+    if (result.finalText) console.log(result.finalText);
+  } finally {
+    faux.unregister();
   }
 }
 
@@ -119,11 +159,12 @@ async function main(): Promise<void> {
   program
     .command("recover")
     .description("Scan for unfinished tasks from prior runs and prompt for action")
-    .action(async () => {
+    .option("--demo", "Continue using mock email connector + faux pi provider", false)
+    .action(async (options) => {
       const paths = resolvePaths(program.opts().stateDir);
       const prompter = createReadlinePrompter();
       try {
-        await runRecoveryScan(paths, prompter);
+        await runRecoveryScan(paths, prompter, options);
       } finally {
         await prompter.close();
       }

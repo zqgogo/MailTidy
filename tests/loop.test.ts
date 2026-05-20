@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
+import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { CheckpointStore } from "../src/agent/recovery.js";
 import { runAgentLoop } from "../src/agent/loop.js";
@@ -63,5 +64,30 @@ describe("runAgentLoop", () => {
       expect(task?.status).toBe("interrupted");
       expect(task?.exitReason).toBe("max_steps_exceeded");
     });
+  });
+
+  it("can route runAgentLoop through the pi engine", async () => {
+    const faux = registerFauxProvider();
+    faux.setResponses([
+      fauxAssistantMessage(fauxToolCall("fetch_recent_email", { limit: 1, unreadOnly: true }), {
+        stopReason: "toolUse",
+      }),
+      fauxAssistantMessage("Pi engine cleanup finished."),
+    ]);
+
+    try {
+      await withTempState(async (dir) => {
+        const runtime = { ...deps(dir), piModel: faux.getModel() };
+        const result = await runAgentLoop(runtime, { engine: "pi" });
+
+        expect(result.exit.reason).toBe("completed");
+        expect(result.report).toContain("Pi engine cleanup finished");
+
+        const task = await runtime.tasks.load(result.taskId);
+        expect(task?.status).toBe("completed");
+      });
+    } finally {
+      faux.unregister();
+    }
   });
 });

@@ -14,6 +14,7 @@
  */
 
 import { emptyBudget, type CheckpointStore } from "./recovery.js";
+import type { Model } from "@earendil-works/pi-ai";
 import type { JsonTaskStore } from "../data/tasks.js";
 import type { LLMRouter } from "../llm/router.js";
 import type { EmailConnector } from "../integrations/email/base.js";
@@ -29,6 +30,7 @@ import { cleanupReport } from "../data/reports.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { DecisionPolicy } from "./policies.js";
 import { exitFailed, exitInterrupted, exitOk, type ExitDecision } from "./exits.js";
+import { runMailTidyPiAgent } from "./piRunner.js";
 
 export interface AgentLoopDeps {
   router: LLMRouter;
@@ -37,10 +39,12 @@ export interface AgentLoopDeps {
   checkpoints: CheckpointStore;
   memory?: AgentMemory;
   policy?: DecisionPolicy;
+  piModel?: Model<any>;
 }
 
 export interface RunAgentLoopOptions {
   sop?: "inbox_cleanup";
+  engine?: "deterministic" | "pi";
   hours?: number;
   limit?: number;
   customDimensions?: string[];
@@ -68,6 +72,10 @@ export async function runAgentLoop(
   deps: AgentLoopDeps,
   options: RunAgentLoopOptions = {},
 ): Promise<AgentLoopResult> {
+  if (options.engine === "pi") {
+    return runPiBackedAgentLoop(deps, options);
+  }
+
   const invocation = { sop: "inbox_cleanup", ...options };
   const record = await deps.tasks.create({
     sop: "inbox_cleanup",
@@ -176,6 +184,40 @@ export async function runAgentLoop(
     }
     return { taskId: record.taskId, exit, plan, execution, report };
   }
+}
+
+async function runPiBackedAgentLoop(
+  deps: AgentLoopDeps,
+  options: RunAgentLoopOptions,
+): Promise<AgentLoopResult> {
+  if (!deps.piModel) {
+    throw new Error('runAgentLoop({ engine: "pi" }) requires AgentLoopDeps.piModel.');
+  }
+  const tools = createMailTidyTools({
+    connector: deps.connector,
+    llm: deps.router.clientFor("classification"),
+    memory: deps.memory ?? emptyMemory(),
+  });
+  const result = await runMailTidyPiAgent(
+    {
+      tasks: deps.tasks,
+      checkpoints: deps.checkpoints,
+      tools,
+      model: deps.piModel,
+    },
+    {
+      invocation: { sop: "inbox_cleanup", ...options },
+      maxSteps: options.maxSteps,
+      allowHighRiskTools: options.autoConfirm,
+    },
+  );
+  return {
+    taskId: result.taskId,
+    exit: result.exit,
+    plan: { intent: "inbox_cleanup", judgments: [], actions: [], humanPrompts: [] },
+    execution: emptyExecutionResult(),
+    report: result.finalText,
+  };
 }
 
 function requireTool(tools: ReturnType<typeof createMailTidyTools>, name: string) {

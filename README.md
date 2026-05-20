@@ -71,14 +71,14 @@ checkpoint store + CLI recovery scan + SIGINT handler) is in place, and Phase
 1.2 now has a minimal `runAgentLoop()` that writes task/checkpoint state while
 driving cleanup through the tool registry. Phase 1.3 has started with pi
 AgentTool adapters, lifecycle hooks for risk gates/checkpoints/stop conditions,
-and a pi `Agent` factory tested against the faux provider. End-to-end "resume
-after kill -9" still waits on the pi-agent-core continuation path. See
+and a pi runner wired into `runAgentLoop({ engine: "pi" })` with faux-provider
+tool-use tests. End-to-end "resume after kill -9" still waits on the CLI
+recovery continuation path. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: assemble the pi `Agent` / `agentLoop` entry-point from the new
-  tool adapter and lifecycle hooks, rewrite the 4 SOPs as loop entry-points,
-  and hook `agentLoopContinue` for end-to-end `kill -9` recovery.
+- Phase 1: hook CLI recovery `[c] continue` to the pi runner, rewrite the 4
+  SOPs as loop entry-points, and run end-to-end `kill -9` recovery verification.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

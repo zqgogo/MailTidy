@@ -21,9 +21,11 @@ import { JsonMemoryStore } from "../data/memory.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
 import { LegacyMailTidyAgent } from "../agent/legacy.js";
+import { runAgentLoop } from "../agent/loop.js";
 import { continueRecoveredTask } from "../agent/recoveryContinue.js";
 import { MockEmailConnector } from "../integrations/email/mock.js";
 import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
+import { LLMRouter } from "../llm/router.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
 
@@ -174,11 +176,33 @@ async function main(): Promise<void> {
     .command("run-cleanup")
     .description("Run inbox cleanup SOP")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
+    .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Approve confirmation-gated actions", false)
     .option("--dimension <name>", "Custom dimension to classify (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
+      if (options.agent) {
+        const memoryStore = new JsonMemoryStore(paths.memory);
+        const memory = await memoryStore.load();
+        const llm = new HeuristicLLMClient();
+        const result = await runAgentLoop(
+          {
+            connector: new MockEmailConnector(),
+            router: new LLMRouter({ heuristic: llm }),
+            tasks: new JsonTaskStore(paths.tasksDir),
+            checkpoints: new CheckpointStore(paths.checkpointsDir),
+            memory,
+          },
+          {
+            customDimensions: options.dimension,
+            autoConfirm: options.autoConfirm,
+          },
+        );
+        console.log(result.report);
+        await memoryStore.save(memory);
+        return;
+      }
       await withTaskLifecycle(paths, { sop: "inbox_cleanup", invocation: options }, async (_record) => {
         const { agent, memoryStore } = await buildLegacyAgent(paths);
         const report = await agent.runCleanup({

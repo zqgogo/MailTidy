@@ -74,12 +74,14 @@ AgentTool adapters, lifecycle hooks for risk gates/checkpoints/stop conditions,
 and a pi runner wired into `runAgentLoop({ engine: "pi" })` with faux-provider
 tool-use tests. `recover --demo` can now continue from checkpoint through the
 pi runner, and recovery continuation has a non-interactive e2e test. Full
-"resume after kill -9" verification is next. See
+"resume after kill -9" verification is next. `run-cleanup --demo --agent`
+already exercises the new loop entry-point while the legacy command remains
+the default. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: rewrite the 4 SOPs as loop entry-points, then run end-to-end
-  `kill -9` recovery verification.
+- Phase 1: finish rewriting daily brief, subscription scan, and draft replies
+  as loop entry-points, then run end-to-end `kill -9` recovery verification.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

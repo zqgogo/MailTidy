@@ -12,8 +12,10 @@ summarize recent inbox items.
 3. Apply user rules and memory before proposing actions.
 4. Read the original email only when metadata is insufficient, confidence is low,
    or the action could hide something important.
-5. Group safe actions separately from actions that need confirmation.
-6. Ask the user before destructive, irreversible, or high-risk actions.
+5. Produce a cleanup plan before changing mailbox state.
+6. Wait for user confirmation before archiving, labeling, starring, marking read,
+   writing memory, or running any other side-effecting action.
+7. After confirmation, execute only the approved plan items.
 
 ## Evidence
 

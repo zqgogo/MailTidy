@@ -498,13 +498,15 @@ class DecisionPolicy {
 
 #### 确认策略
 
+产品默认是**方案先行**：Agent 可以先读邮件、分类、生成计划和草稿预览；任何会改变邮箱状态、写入偏好、联网研究或产生外部副作用的动作，都必须先进入计划给用户看。用户可以确认、删除或修改计划项；只有显式确认（CLI 的 `--auto-confirm`、交互式 `askUser` yes、或未来 UI 按钮）后才执行。
+
 | 操作 | 默认要求 | 可学习放开 |
 | --- | --- | --- |
-| `markRead` (notification, conf ≥ 0.82) | 直接执行 | — |
-| `label` | 直接执行 | — |
-| `star` | 直接执行 | — |
+| `markRead` (notification, conf ≥ 0.82) | 先入计划，确认后执行 | 未来可按发件人 / 规则放开 |
+| `label` | 先入计划，确认后执行 | 未来可按标签 / 发件人放开 |
+| `star` | 先入计划，确认后执行 | 未来可按发件人放开 |
 | `archive` (spam / promotion, conf ≥ 0.85) | **需确认** | 同一发件人确认 3 次后可自动 |
-| `saveDraft` | 直接写到草稿箱（永不发送） | — |
+| `saveDraft` | 先展示草稿预览，确认后保存（永不发送） | — |
 | `writeMemory` (新偏好) | **需确认** | 不可学习放开 |
 
 #### 自定义规则引擎（Phase 3）
@@ -688,7 +690,8 @@ interface UsageRecord {
 | Classify (轻) | 每封邮件调 `llm.classifyEmail`，应用 `DecisionPolicy.applyMemory` |
 | Deep think (中) | 对低置信度 / 风险邮件触发 §2.2 流程 |
 | Build plan | `DecisionPolicy.buildPlan` 聚合成批量动作 |
-| Execute | 安全动作直接做；需确认动作进 `humanPrompts` |
+| Preview | 输出完整 cleanup plan，列出 proposed actions、依据和需用户关注的邮件 |
+| Execute | 只有用户确认后才执行邮箱写动作；未确认时不改变邮箱状态 |
 | Report | `cleanupReport(plan, result, messages, newsletterSummary)` |
 
 预算：默认 12 步 / 50K token / 120s。
@@ -702,7 +705,8 @@ interface UsageRecord {
 | 选邮件 | 默认从最近 cleanup 计划中挑出 `actionable` 邮件 |
 | Style 加载 | `AgentMemory.styleProfile` 提供 opening / closing / signature |
 | 草稿生成 | `llm.draftReply(message, style)`，故意留 `[需要你补充]` 让用户必看 |
-| 写盘 | `connector.saveDraft(emailId, body)` |
+| Preview | 默认只展示草稿计划和 proposed draft text |
+| 写盘 | 用户确认后才调用 `connector.saveDraft(emailId, body)` |
 
 ### 3.3 SOP 3：订阅费扫描器
 
@@ -1069,14 +1073,16 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.3e CLI recovery demo continue 已接通：[src/interfaces/cli.ts](src/interfaces/cli.ts) 的 `recover --demo` 在用户选择 `[c] continue` 时加载 checkpoint 并调用 `runMailTidyPiAgent({ checkpoint })`；非 demo 仍明确提示等待真实 pi model adapter
 - Phase 1.3f recovery continuation helper 已落地：[src/agent/recoveryContinue.ts](src/agent/recoveryContinue.ts) 把 interrupted task + checkpoint + pi model + tools 续跑到 completed；`tests/recovery-continue.test.ts` 覆盖临时 state 下 checkpoint continue → completed
 - Phase 1.4a cleanup CLI loop entry-point 已落地：`mailtidy run-cleanup --demo --agent` 走 [src/agent/loop.ts](src/agent/loop.ts) 的 `runAgentLoop()`，默认不带 `--agent` 仍走 legacy pipeline 保持兼容；已手动验证 `npm run dev -- run-cleanup --demo --agent --auto-confirm`
-- 测试 22/22 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 1.4b 其余 SOP loop entry-point 已落地：`daily-brief --demo --agent` / `subscription-scan --demo --agent` / `draft-replies --demo --agent` 现在都走同一个 [src/agent/loop.ts](src/agent/loop.ts)，默认不带 `--agent` 仍走 [src/agent/legacy.ts](src/agent/legacy.ts)；`tests/loop.test.ts` 增加三条覆盖
+- Phase 1.4c 方案先行约束开始落地：`draft-replies --demo --agent` 默认只输出 `# Draft Replies Plan` 和 proposed drafts，不保存草稿；只有显式 `--auto-confirm` 才调用写入工具保存草稿
+- Phase 1.4d cleanup 也改为方案先行：`run-cleanup --demo --agent` 默认输出 `# MailTidy Cleanup Plan` 且不执行 label/star/archive/mark-read；显式 `--auto-confirm` 后才执行写动作
+- Phase 1.4e kill/restart/continue 端到端验收已自动化：[tests/recovery-kill-e2e.test.ts](tests/recovery-kill-e2e.test.ts) 启动真实 CLI，等 checkpoint 落盘后 `SIGKILL` 主进程，再运行 `recover --demo` 并选择 `[c]`，验证任务从 checkpoint 续跑到 completed
+- Phase 1.5a 真实 LLM 窄接口 adapter 已落地：[src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [src/integrations/llm/anthropic.ts](src/integrations/llm/anthropic.ts) 通过 [src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 包装 `@earendil-works/pi-ai` 的 `getModels()` + `completeSimple()`，实现 `classifyEmail` / `draftReply` / `summarizeNewsletters`；`tests/llm-adapters.test.ts` 用注入 completion 无网络覆盖
+- 测试 30/30 全绿，`npm test -- --run` 与 `npm run build` 均通过
 
 **尚未实现**（下一阶段重点）：
 
-- Phase 1.4b：继续把 `daily-brief` / `subscription-scan` / `draft-replies` 接到 loop entry-point；随后做 kill/restart/continue 端到端验收
-- "kill -9 → 重启 → 续跑" 端到端验收（验收点 d）等主循环上来 + `agentLoopContinue` 路径联通后才能跑
-- 真实 OpenAI / Anthropic 适配器（基于 `@earendil-works/pi-ai`）—— Phase 1.5
-- Phase 1.4：4 条 SOP 改写为 `runAgentLoop` 入口，[src/agent/legacy.ts](src/agent/legacy.ts) 暂留作对照
+- CLI / config 层选择真实 OpenAI / Anthropic provider，并在失败时降级到 `HeuristicLLMClient`
 - 学习层、自定义规则引擎、研究型分析、真实邮箱、Web UI
 
 ### 5.3 路线图（Phase 1-5）
@@ -1090,8 +1096,8 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.1 | ✅ 完成：[src/tools/](src/tools/) 8 个工具集（10 个 ToolDefinition）全部就位 —— email / classify / action / user / memory 是实功能；rules / research / history 是 schema-defined stub（schema + 限频齐全，返回 "not yet implemented"），等 Phase 1.8 + Phase 3 把后端补上 |
 | 1.2 | ✅ 完成最小版 [src/agent/loop.ts](src/agent/loop.ts)：任务记录先写盘、工具注册表执行、每步 checkpoint、step budget 退出；完整 pi `Agent` 接入顺延到 1.3 |
 | 1.3 | ✅ 完成：pi AgentTool 适配层；pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；pi `Agent` 工厂；pi runner + `runAgentLoop({ engine: "pi" })`；CLI `recover --demo` continue；recovery continuation helper + 测试 |
-| 1.4 | 进行中：✅ `run-cleanup --demo --agent` 接入 `runAgentLoop()`；下一步改写 daily-brief / subscription-scan / draft-replies，**保持 CLI 兼容** |
-| 1.5 | 接入真实 LLM 的 tool-use ([src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [anthropic.ts](src/integrations/llm/anthropic.ts) 内部用 `@earendil-works/pi-ai`)；保留 `HeuristicLLMClient` 给 CI 用 |
+| 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；方案先行默认行为和 kill/restart/continue e2e 均已覆盖 |
+| 1.5 | 进行中：✅ OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；下一步接 CLI/config provider 选择与失败降级 |
 | 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |
 | 1.7 | 实现"建议丰富度"输出格式：给 `EmailJudgment` 增加 `Suggestion` 子结构（6 字段） |
 | 1.8 | 加 trace / context 单测：低置信度邮件必须触发 `readEmail`，含可疑链接的邮件必须触发域名核对；超长 thread 必须先摘要压缩 |

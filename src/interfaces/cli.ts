@@ -218,10 +218,19 @@ async function main(): Promise<void> {
     .command("daily-brief")
     .description("Generate daily briefing")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
+    .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--dimension <name>", "Custom dimension (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
+      if (options.agent) {
+        const result = await runAgentCommand(paths, {
+          sop: "daily_brief",
+          customDimensions: options.dimension,
+        });
+        console.log(result.report);
+        return;
+      }
       await withTaskLifecycle(paths, { sop: "daily_brief", invocation: options }, async () => {
         const { agent, memoryStore } = await buildLegacyAgent(paths);
         const brief = await agent.dailyBriefing(options.dimension);
@@ -234,9 +243,15 @@ async function main(): Promise<void> {
     .command("subscription-scan")
     .description("Scan for likely subscriptions")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
+    .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
+      if (options.agent) {
+        const result = await runAgentCommand(paths, { sop: "subscription_scan" });
+        console.log(result.report);
+        return;
+      }
       await withTaskLifecycle(paths, { sop: "subscription_scan", invocation: options }, async () => {
         const { agent, memoryStore } = await buildLegacyAgent(paths);
         const { markdown, csv } = await agent.scanSubscriptions();
@@ -251,9 +266,21 @@ async function main(): Promise<void> {
     .command("draft-replies")
     .description("Draft replies for actionable messages")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
+    .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
+    .option("--auto-confirm", "Save proposed drafts instead of previewing only", false)
+    .option("--dry-run", "Preview draft creation without writing drafts", false)
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
+      if (options.agent) {
+        const result = await runAgentCommand(paths, {
+          sop: "draft_replies",
+          autoConfirm: options.autoConfirm,
+          dryRun: options.dryRun,
+        });
+        console.log(result.report);
+        return;
+      }
       await withTaskLifecycle(paths, { sop: "draft_replies", invocation: options }, async () => {
         const { agent, memoryStore } = await buildLegacyAgent(paths);
         const result = await agent.draftReplies();
@@ -274,6 +301,27 @@ function requireDemo(opts: { demo?: boolean }): void {
 
 function collect(value: string, prev: string[]): string[] {
   return [...prev, value];
+}
+
+async function runAgentCommand(
+  paths: RuntimePaths,
+  options: Parameters<typeof runAgentLoop>[1],
+): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const memoryStore = new JsonMemoryStore(paths.memory);
+  const memory = await memoryStore.load();
+  const llm = new HeuristicLLMClient();
+  const result = await runAgentLoop(
+    {
+      connector: new MockEmailConnector(),
+      router: new LLMRouter({ heuristic: llm }),
+      tasks: new JsonTaskStore(paths.tasksDir),
+      checkpoints: new CheckpointStore(paths.checkpointsDir),
+      memory,
+    },
+    options,
+  );
+  await memoryStore.save(memory);
+  return result;
 }
 
 /**

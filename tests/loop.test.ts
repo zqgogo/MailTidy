@@ -29,7 +29,25 @@ function deps(dir: string) {
 }
 
 describe("runAgentLoop", () => {
-  it("runs the minimal cleanup loop with task and checkpoint persistence", async () => {
+  it("previews the cleanup plan before confirmation", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { limit: 5 });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.plan.judgments.length).toBeGreaterThan(0);
+      expect(result.execution.archived + result.execution.labeled + result.execution.starred + result.execution.markedRead).toBe(0);
+      expect(result.execution.skippedConfirmation).toBeGreaterThan(0);
+      expect(result.report).toContain("# MailTidy Cleanup Plan");
+      expect(result.report).toContain("Run again with `--auto-confirm`");
+
+      const task = await runtime.tasks.load(result.taskId);
+      expect(task?.status).toBe("completed");
+      expect(task?.progress.phase).toBe("report");
+    });
+  });
+
+  it("executes the cleanup loop after confirmation with task and checkpoint persistence", async () => {
     await withTempState(async (dir) => {
       const runtime = deps(dir);
       const result = await runAgentLoop(runtime, {
@@ -63,6 +81,67 @@ describe("runAgentLoop", () => {
       const task = await runtime.tasks.load(result.taskId);
       expect(task?.status).toBe("interrupted");
       expect(task?.exitReason).toBe("max_steps_exceeded");
+    });
+  });
+
+  it("runs daily brief through the loop entry-point", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { sop: "daily_brief", limit: 5 });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.report).toContain("# MailTidy Daily Brief");
+
+      const task = await runtime.tasks.load(result.taskId);
+      expect(task?.sop).toBe("daily_brief");
+      expect(task?.status).toBe("completed");
+    });
+  });
+
+  it("runs subscription scan through the loop entry-point", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { sop: "subscription_scan" });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.report).toContain("# Subscription Scan");
+      expect(result.report).toContain("CSV");
+
+      const task = await runtime.tasks.load(result.taskId);
+      expect(task?.sop).toBe("subscription_scan");
+      expect(task?.status).toBe("completed");
+    });
+  });
+
+  it("previews draft replies through the loop entry-point before confirmation", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { sop: "draft_replies" });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.execution.draftsCreated).toBe(0);
+      expect(result.execution.skippedConfirmation).toBeGreaterThanOrEqual(1);
+      expect(result.report).toContain("# Draft Replies Plan");
+      expect(result.report).toContain("Run again with `--auto-confirm`");
+
+      const task = await runtime.tasks.load(result.taskId);
+      expect(task?.sop).toBe("draft_replies");
+      expect(task?.status).toBe("completed");
+    });
+  });
+
+  it("saves draft replies after explicit confirmation", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { sop: "draft_replies", autoConfirm: true });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.execution.draftsCreated).toBeGreaterThanOrEqual(1);
+      expect(result.report).toContain("Drafts saved:");
+
+      const task = await runtime.tasks.load(result.taskId);
+      expect(task?.sop).toBe("draft_replies");
+      expect(task?.status).toBe("completed");
     });
   });
 

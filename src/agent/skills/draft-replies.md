@@ -10,8 +10,9 @@ Use this skill when the user asks to draft responses for actionable emails.
 2. Read the full email and relevant thread context before drafting.
 3. Load the user's writing style profile and recent approved examples when available.
 4. Draft only from known facts. Use placeholders for missing details.
-5. Prefer saving drafts over sending. Never send automatically.
-6. Suggest reply, reply-all, or forward only when the thread context supports it.
+5. Show proposed drafts to the user before writing them to the mailbox.
+6. Save drafts only after user confirmation. Never send automatically.
+7. Suggest reply, reply-all, or forward only when the thread context supports it.
 
 ## Evidence
 

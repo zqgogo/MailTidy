@@ -34,6 +34,13 @@ export const ActionType = {
 } as const;
 export type ActionType = (typeof ActionType)[keyof typeof ActionType];
 
+export const ActionRisk = {
+  LOW: "low",
+  MEDIUM: "medium",
+  HIGH: "high",
+} as const;
+export type ActionRisk = (typeof ActionRisk)[keyof typeof ActionRisk];
+
 export interface EmailMessage {
   readonly id: string;
   readonly sender: string;
@@ -64,6 +71,7 @@ export interface PlannedAction {
   label?: string;
   draftBody?: string;
   reason?: string;
+  risk?: ActionRisk;
   requiresConfirmation?: boolean;
 }
 

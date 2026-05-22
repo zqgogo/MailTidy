@@ -2,6 +2,8 @@ import type { AssistantMessage } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { Category, defaultStyleProfile, type EmailMessage } from "../src/data/models.js";
 import { AnthropicLLMClient } from "../src/integrations/llm/anthropic.js";
+import { FallbackLLMClient } from "../src/integrations/llm/fallback.js";
+import { HeuristicLLMClient } from "../src/integrations/llm/heuristic.js";
 import { OpenAILLMClient } from "../src/integrations/llm/openai.js";
 import type { PiComplete } from "../src/integrations/llm/piClient.js";
 
@@ -45,6 +47,26 @@ describe("pi-backed LLM adapters", () => {
 
     expect(client.profile.provider).toBe("anthropic");
     expect(draft).toContain("[需要你补充]");
+  });
+
+  it("falls back to heuristic when a provider call fails", async () => {
+    const primary = new OpenAILLMClient({
+      complete: async () => {
+        throw new Error("network unavailable");
+      },
+    });
+    const events: string[] = [];
+    const client = new FallbackLLMClient({
+      primary,
+      fallback: new HeuristicLLMClient(),
+      onFallback: ({ method }) => events.push(method),
+    });
+
+    const judgment = await client.classifyEmail(message);
+
+    expect(events).toEqual(["classifyEmail"]);
+    expect(judgment.emailId).toBe(message.id);
+    expect(judgment.category).toBe(Category.ACTIONABLE);
   });
 });
 

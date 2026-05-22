@@ -60,6 +60,7 @@ export interface RunAgentLoopOptions {
   autoConfirm?: boolean;
   dryRun?: boolean;
   maxSteps?: number;
+  automationMode?: "conservative" | "balanced" | "aggressive";
 }
 
 export interface AgentLoopResult {
@@ -93,7 +94,7 @@ export async function runAgentLoop(
     initialPhase: "start",
   });
   const budget = emptyBudget();
-  const policy = deps.policy ?? new DecisionPolicy();
+  const policy = deps.policy ?? new DecisionPolicy({ automationMode: options.automationMode });
   const memory = deps.memory ?? emptyMemory();
   const tools = createMailTidyTools({
     connector: deps.connector,
@@ -160,7 +161,7 @@ export async function runAgentLoop(
     }
 
     record.progress.phase = "plan";
-    plan = policy.buildPlan(sop, judgments);
+    plan = policy.buildPlan(sop, judgments, memory);
     budget.steps += 1;
     await checkpoint(deps, record.taskId, budget, `Planned ${plan.actions.length} action group(s).`);
     await deps.tasks.update(record);
@@ -187,17 +188,6 @@ export async function runAgentLoop(
       });
       report = draftRepliesReport(execution, record.progress.partialArtifacts?.draftPreviews);
       await checkpoint(deps, record.taskId, budget, "Draft replies generated.");
-      await deps.tasks.markCompleted(record);
-      return { taskId: record.taskId, exit: exitOk(), plan, execution, report };
-    }
-
-    if (!options.autoConfirm) {
-      record.progress.phase = "report";
-      execution = emptyExecutionResult(plan.judgments.length);
-      execution.skippedConfirmation = plan.actions.reduce((sum, action) => sum + action.emailIds.length, 0);
-      execution.notes.push("preview only: cleanup plan requires confirmation before mailbox writes");
-      report = cleanupPlanReport(plan, messages, execution);
-      await checkpoint(deps, record.taskId, budget, "Cleanup plan generated; waiting for confirmation.");
       await deps.tasks.markCompleted(record);
       return { taskId: record.taskId, exit: exitOk(), plan, execution, report };
     }

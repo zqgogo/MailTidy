@@ -498,13 +498,20 @@ class DecisionPolicy {
 
 #### 确认策略
 
-产品默认是**方案先行**：Agent 可以先读邮件、分类、生成计划和草稿预览；任何会改变邮箱状态、写入偏好、联网研究或产生外部副作用的动作，都必须先进入计划给用户看。用户可以确认、删除或修改计划项；只有显式确认（CLI 的 `--auto-confirm`、交互式 `askUser` yes、或未来 UI 按钮）后才执行。
+产品默认是**分级自动化**：Agent 可以先读邮件、分类、生成计划；低风险动作默认直接做，中高风险动作列出来问。用户可以把某类动作改成 always ask / auto approve；学习层会把多次确认、拒绝、手工修改转成 `AgentMemory.actionPreferences`，但高风险动作不能被单次反馈放开。
+
+自动化模式：
+
+| 模式 | 行为 |
+| --- | --- |
+| `conservative` | 低风险自动；中高风险确认 |
+| `balanced` | 默认模式：低风险自动；中高风险确认；可被已学习偏好收紧或放开中风险 |
+| `aggressive` | 低中风险自动；高风险确认 |
 
 | 操作 | 默认要求 | 可学习放开 |
 | --- | --- | --- |
-| `markRead` (notification, conf ≥ 0.82) | 先入计划，确认后执行 | 未来可按发件人 / 规则放开 |
-| `label` | 先入计划，确认后执行 | 未来可按标签 / 发件人放开 |
-| `star` | 先入计划，确认后执行 | 未来可按发件人放开 |
+| `label` / `star` | 低风险，默认自动 | 可改为 always ask |
+| `markRead` (notification, conf ≥ 0.82) | 中风险，默认确认 | 可按发件人 / 规则放开 |
 | `archive` (spam / promotion, conf ≥ 0.85) | **需确认** | 同一发件人确认 3 次后可自动 |
 | `saveDraft` | 先展示草稿预览，确认后保存（永不发送） | — |
 | `writeMemory` (新偏好) | **需确认** | 不可学习放开 |
@@ -1075,10 +1082,11 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.4a cleanup CLI loop entry-point 已落地：`mailtidy run-cleanup --demo --agent` 走 [src/agent/loop.ts](src/agent/loop.ts) 的 `runAgentLoop()`，默认不带 `--agent` 仍走 legacy pipeline 保持兼容；已手动验证 `npm run dev -- run-cleanup --demo --agent --auto-confirm`
 - Phase 1.4b 其余 SOP loop entry-point 已落地：`daily-brief --demo --agent` / `subscription-scan --demo --agent` / `draft-replies --demo --agent` 现在都走同一个 [src/agent/loop.ts](src/agent/loop.ts)，默认不带 `--agent` 仍走 [src/agent/legacy.ts](src/agent/legacy.ts)；`tests/loop.test.ts` 增加三条覆盖
 - Phase 1.4c 方案先行约束开始落地：`draft-replies --demo --agent` 默认只输出 `# Draft Replies Plan` 和 proposed drafts，不保存草稿；只有显式 `--auto-confirm` 才调用写入工具保存草稿
-- Phase 1.4d cleanup 也改为方案先行：`run-cleanup --demo --agent` 默认输出 `# MailTidy Cleanup Plan` 且不执行 label/star/archive/mark-read；显式 `--auto-confirm` 后才执行写动作
+- Phase 1.4d cleanup 改为分级自动化：`run-cleanup --demo --agent` 默认自动执行低风险 `label` / `star`，中高风险动作保留到 "Confirmation Needed"；`--auto-confirm` 可执行确认门控动作
 - Phase 1.4e kill/restart/continue 端到端验收已自动化：[tests/recovery-kill-e2e.test.ts](tests/recovery-kill-e2e.test.ts) 启动真实 CLI，等 checkpoint 落盘后 `SIGKILL` 主进程，再运行 `recover --demo` 并选择 `[c]`，验证任务从 checkpoint 续跑到 completed
 - Phase 1.5a 真实 LLM 窄接口 adapter 已落地：[src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [src/integrations/llm/anthropic.ts](src/integrations/llm/anthropic.ts) 通过 [src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 包装 `@earendil-works/pi-ai` 的 `getModels()` + `completeSimple()`，实现 `classifyEmail` / `draftReply` / `summarizeNewsletters`；`tests/llm-adapters.test.ts` 用注入 completion 无网络覆盖
-- 测试 30/30 全绿，`npm test -- --run` 与 `npm run build` 均通过
+- Phase 1.5b 决策策略支持可调自动化：`DecisionPolicy({ automationMode })` 支持 conservative / balanced / aggressive；`AgentMemory.actionPreferences` 可把 `label:Newsletters` 等动作设为 `confirm` 或 `auto`，测试覆盖偏好收紧默认自动化
+- 测试 32/32 全绿，`npm test -- --run` 与 `npm run build` 均通过
 
 **尚未实现**（下一阶段重点）：
 
@@ -1096,7 +1104,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.1 | ✅ 完成：[src/tools/](src/tools/) 8 个工具集（10 个 ToolDefinition）全部就位 —— email / classify / action / user / memory 是实功能；rules / research / history 是 schema-defined stub（schema + 限频齐全，返回 "not yet implemented"），等 Phase 1.8 + Phase 3 把后端补上 |
 | 1.2 | ✅ 完成最小版 [src/agent/loop.ts](src/agent/loop.ts)：任务记录先写盘、工具注册表执行、每步 checkpoint、step budget 退出；完整 pi `Agent` 接入顺延到 1.3 |
 | 1.3 | ✅ 完成：pi AgentTool 适配层；pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；pi `Agent` 工厂；pi runner + `runAgentLoop({ engine: "pi" })`；CLI `recover --demo` continue；recovery continuation helper + 测试 |
-| 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；方案先行默认行为和 kill/restart/continue e2e 均已覆盖 |
+| 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；分级自动化默认行为和 kill/restart/continue e2e 均已覆盖 |
 | 1.5 | 进行中：✅ OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；下一步接 CLI/config provider 选择与失败降级 |
 | 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |
 | 1.7 | 实现"建议丰富度"输出格式：给 `EmailJudgment` 增加 `Suggestion` 子结构（6 字段） |

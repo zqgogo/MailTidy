@@ -21,10 +21,14 @@ import { JsonMemoryStore } from "../data/memory.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
 import { LegacyMailTidyAgent } from "../agent/legacy.js";
-import { runAgentLoop } from "../agent/loop.js";
+import { runAgentLoop, type RunAgentLoopOptions } from "../agent/loop.js";
 import { continueRecoveredTask } from "../agent/recoveryContinue.js";
 import { MockEmailConnector } from "../integrations/email/mock.js";
+import { AnthropicLLMClient } from "../integrations/llm/anthropic.js";
+import { FallbackLLMClient } from "../integrations/llm/fallback.js";
 import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
+import { OpenAILLMClient } from "../integrations/llm/openai.js";
+import type { LLMClient } from "../llm/client.js";
 import { LLMRouter } from "../llm/router.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
@@ -178,29 +182,22 @@ async function main(): Promise<void> {
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Approve confirmation-gated actions", false)
+    .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-model <model>", "Provider model id for --agent")
     .option("--dimension <name>", "Custom dimension to classify (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
       if (options.agent) {
-        const memoryStore = new JsonMemoryStore(paths.memory);
-        const memory = await memoryStore.load();
-        const llm = new HeuristicLLMClient();
-        const result = await runAgentLoop(
-          {
-            connector: new MockEmailConnector(),
-            router: new LLMRouter({ heuristic: llm }),
-            tasks: new JsonTaskStore(paths.tasksDir),
-            checkpoints: new CheckpointStore(paths.checkpointsDir),
-            memory,
-          },
-          {
-            customDimensions: options.dimension,
-            autoConfirm: options.autoConfirm,
-          },
-        );
+        const result = await runAgentCommand(paths, {
+          customDimensions: options.dimension,
+          autoConfirm: options.autoConfirm,
+          automationMode: parseAutomationMode(options.automationMode),
+          llmProvider: parseLLMProvider(options.llmProvider),
+          llmModel: options.llmModel,
+        });
         console.log(result.report);
-        await memoryStore.save(memory);
         return;
       }
       await withTaskLifecycle(paths, { sop: "inbox_cleanup", invocation: options }, async (_record) => {
@@ -219,6 +216,9 @@ async function main(): Promise<void> {
     .description("Generate daily briefing")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
+    .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-model <model>", "Provider model id for --agent")
     .option("--dimension <name>", "Custom dimension (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
@@ -227,6 +227,9 @@ async function main(): Promise<void> {
         const result = await runAgentCommand(paths, {
           sop: "daily_brief",
           customDimensions: options.dimension,
+          automationMode: parseAutomationMode(options.automationMode),
+          llmProvider: parseLLMProvider(options.llmProvider),
+          llmModel: options.llmModel,
         });
         console.log(result.report);
         return;
@@ -244,11 +247,17 @@ async function main(): Promise<void> {
     .description("Scan for likely subscriptions")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-model <model>", "Provider model id for --agent")
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
       if (options.agent) {
-        const result = await runAgentCommand(paths, { sop: "subscription_scan" });
+        const result = await runAgentCommand(paths, {
+          sop: "subscription_scan",
+          llmProvider: parseLLMProvider(options.llmProvider),
+          llmModel: options.llmModel,
+        });
         console.log(result.report);
         return;
       }
@@ -269,6 +278,8 @@ async function main(): Promise<void> {
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Save proposed drafts instead of previewing only", false)
     .option("--dry-run", "Preview draft creation without writing drafts", false)
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-model <model>", "Provider model id for --agent")
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
@@ -277,6 +288,8 @@ async function main(): Promise<void> {
           sop: "draft_replies",
           autoConfirm: options.autoConfirm,
           dryRun: options.dryRun,
+          llmProvider: parseLLMProvider(options.llmProvider),
+          llmModel: options.llmModel,
         });
         console.log(result.report);
         return;
@@ -303,25 +316,61 @@ function collect(value: string, prev: string[]): string[] {
   return [...prev, value];
 }
 
+function parseAutomationMode(value: string): "conservative" | "balanced" | "aggressive" {
+  if (value === "conservative" || value === "balanced" || value === "aggressive") return value;
+  throw new Error(`Invalid --automation-mode "${value}". Expected conservative, balanced, or aggressive.`);
+}
+
+type LLMProviderName = "heuristic" | "openai" | "anthropic";
+
+type AgentCommandOptions = RunAgentLoopOptions & {
+  llmProvider?: LLMProviderName;
+  llmModel?: string;
+};
+
+function parseLLMProvider(value: string): LLMProviderName {
+  if (value === "heuristic" || value === "openai" || value === "anthropic") return value;
+  throw new Error(`Invalid --llm-provider "${value}". Expected heuristic, openai, or anthropic.`);
+}
+
 async function runAgentCommand(
   paths: RuntimePaths,
-  options: Parameters<typeof runAgentLoop>[1],
+  options: AgentCommandOptions,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const memoryStore = new JsonMemoryStore(paths.memory);
   const memory = await memoryStore.load();
-  const llm = new HeuristicLLMClient();
+  const llm = buildLLMClient(options.llmProvider ?? "heuristic", options.llmModel);
+  const { llmProvider: _llmProvider, llmModel: _llmModel, ...loopOptions } = options;
   const result = await runAgentLoop(
     {
       connector: new MockEmailConnector(),
-      router: new LLMRouter({ heuristic: llm }),
+            router: new LLMRouter({ primary: llm, heuristic: new HeuristicLLMClient() }, {}, "primary"),
       tasks: new JsonTaskStore(paths.tasksDir),
       checkpoints: new CheckpointStore(paths.checkpointsDir),
       memory,
     },
-    options,
+    loopOptions,
   );
   await memoryStore.save(memory);
   return result;
+}
+
+function buildLLMClient(provider: LLMProviderName, modelId?: string): LLMClient {
+  const heuristic = new HeuristicLLMClient();
+  if (provider === "heuristic") return heuristic;
+  const primary = provider === "openai"
+    ? new OpenAILLMClient({ modelId })
+    : new AnthropicLLMClient({ modelId });
+  return new FallbackLLMClient({
+    primary,
+    fallback: heuristic,
+    onFallback: ({ method, error, primary: primaryProfile, fallback }) => {
+      const message = error instanceof Error ? error.message : String(error);
+      console.error(
+        `LLM fallback: ${primaryProfile.provider}/${primaryProfile.name} failed during ${method}; using ${fallback.provider}/${fallback.name}. Reason: ${message}`,
+      );
+    },
+  });
 }
 
 /**

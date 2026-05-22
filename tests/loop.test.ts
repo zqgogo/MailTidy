@@ -29,21 +29,61 @@ function deps(dir: string) {
 }
 
 describe("runAgentLoop", () => {
-  it("previews the cleanup plan before confirmation", async () => {
+  it("automates low-risk cleanup actions and asks for higher-risk confirmation by default", async () => {
     await withTempState(async (dir) => {
       const runtime = deps(dir);
       const result = await runAgentLoop(runtime, { limit: 5 });
 
       expect(result.exit.reason).toBe("completed");
       expect(result.plan.judgments.length).toBeGreaterThan(0);
-      expect(result.execution.archived + result.execution.labeled + result.execution.starred + result.execution.markedRead).toBe(0);
+      expect(result.execution.labeled + result.execution.starred).toBeGreaterThan(0);
+      expect(result.execution.archived).toBe(0);
       expect(result.execution.skippedConfirmation).toBeGreaterThan(0);
-      expect(result.report).toContain("# MailTidy Cleanup Plan");
-      expect(result.report).toContain("Run again with `--auto-confirm`");
+      expect(result.report).toContain("# MailTidy Cleanup Report");
+      expect(result.report).toContain("Confirmation Needed");
 
       const task = await runtime.tasks.load(result.taskId);
       expect(task?.status).toBe("completed");
       expect(task?.progress.phase).toBe("report");
+    });
+  });
+
+  it("can require confirmation for medium-risk actions in conservative mode", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      const result = await runAgentLoop(runtime, { limit: 5, automationMode: "conservative" });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.execution.labeled + result.execution.starred).toBeGreaterThan(0);
+      expect(result.execution.archived).toBe(0);
+      expect(result.execution.skippedConfirmation).toBeGreaterThan(0);
+    });
+  });
+
+  it("honors learned action preferences that require confirmation", async () => {
+    await withTempState(async (dir) => {
+      const runtime = {
+        ...deps(dir),
+        memory: {
+          senderPreferences: {},
+          actionPreferences: { "label:Newsletters": "confirm" },
+          styleProfile: {
+            tone: "semi-formal",
+            language: "mixed",
+            openingPatterns: ["Hi"],
+            closingPatterns: ["Best"],
+            signature: "",
+            brevity: "concise",
+          },
+          subscriptionHistory: [],
+        },
+      };
+      const result = await runAgentLoop(runtime, { limit: 5 });
+
+      expect(result.exit.reason).toBe("completed");
+      expect(result.execution.labeled).toBe(0);
+      expect(result.execution.skippedConfirmation).toBeGreaterThanOrEqual(1);
+      expect(result.plan.actions.some((action) => action.action === "label" && action.requiresConfirmation)).toBe(true);
     });
   });
 

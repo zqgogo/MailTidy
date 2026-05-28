@@ -79,11 +79,15 @@ pipeline remains the default. The kill/restart/recover demo path is covered by
 an end-to-end test. `--agent` commands can select heuristic/OpenAI/Anthropic
 LLM clients from `.mailtidy/config.json` or CLI overrides with fallback, and
 agent runs now write report and trace artifacts under `.mailtidy/{reports,traces}`
-for bounded history lookup. See
+for bounded history lookup. The first proactive investigation triggers now flag
+low-confidence, suspicious-link, and preference-conflict cases in plans and
+reports, and the deterministic loop runs the bounded investigation tools before
+reporting the observations. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: add proactive investigation triggers and richer suggestions.
+- Phase 1: add richer suggestion fields and replace investigation stubs with
+  real bounded original-record/domain checks.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

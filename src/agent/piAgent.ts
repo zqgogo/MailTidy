@@ -4,6 +4,8 @@ import type { TaskRecord } from "../data/tasks.js";
 import type { JsonTaskStore } from "../data/tasks.js";
 import type { AnyToolDefinition } from "../tools/base.js";
 import { toPiAgentTools } from "../tools/pi.js";
+import type { InvestigationSuggestion } from "../data/models.js";
+import { formatInvestigationSuggestionsForPrompt } from "./deepThink.js";
 import type { BudgetSnapshot, CheckpointStore } from "./recovery.js";
 import { createMailTidyAgentHooks } from "./piHooks.js";
 
@@ -15,6 +17,7 @@ export interface CreateMailTidyPiAgentOptions {
   budget: BudgetSnapshot;
   tools: AnyToolDefinition[];
   checkpointMessages?: AgentMessage[];
+  investigationSuggestions?: InvestigationSuggestion[];
   maxSteps?: number;
   allowHighRiskTools?: boolean;
 }
@@ -32,7 +35,7 @@ export function createMailTidyPiAgent(options: CreateMailTidyPiAgentOptions): Ag
 
   return new Agent({
     initialState: {
-      systemPrompt: mailTidySystemPrompt(),
+      systemPrompt: mailTidySystemPrompt(options.investigationSuggestions),
       model: options.model,
       tools: toPiAgentTools(options.tools),
       messages: options.checkpointMessages ?? [],
@@ -48,13 +51,16 @@ export function createMailTidyPiAgent(options: CreateMailTidyPiAgentOptions): Ag
   });
 }
 
-export function mailTidySystemPrompt(): string {
-  return [
+export function mailTidySystemPrompt(investigationSuggestions: InvestigationSuggestion[] = []): string {
+  const lines = [
     "You are MailTidy, an email agent.",
     "Work in small reason-act-observe steps.",
     "Prefer low-risk read tools before mailbox writes.",
     "Use evidence from tool results; do not claim actions succeeded unless a tool result says so.",
     "Ask for confirmation before destructive, irreversible, or high-risk actions.",
     "Stop when the task is complete or when uncertainty requires the user.",
-  ].join("\n");
+  ];
+  const suggestions = formatInvestigationSuggestionsForPrompt(investigationSuggestions);
+  if (suggestions) lines.push("", suggestions);
+  return lines.join("\n");
 }

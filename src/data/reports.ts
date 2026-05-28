@@ -55,6 +55,7 @@ export function cleanupReport(
   if (plan.humanPrompts.length > 0) {
     lines.push("", "## Confirmation Needed", ...plan.humanPrompts.map((p) => `- ${p}`));
   }
+  appendInvestigationSuggestions(lines, plan);
   return lines.join("\n");
 }
 
@@ -78,6 +79,7 @@ export function dailyBrief(plan: AgentPlan, messages: EmailMessage[]): string {
   }
   const replies = plan.judgments.filter((j) => j.category === Category.ACTIONABLE).length;
   lines.push(`Unread: ${messages.length}; likely needs reply: ${replies}`);
+  appendInvestigationSuggestions(lines, plan);
   return lines.join("\n");
 }
 
@@ -126,6 +128,32 @@ export function subscriptionsCsv(rows: SubscriptionRow[]): string {
     );
   }
   return out.join("\n") + "\n";
+}
+
+function appendInvestigationSuggestions(lines: string[], plan: AgentPlan): void {
+  if (!plan.investigationSuggestions || plan.investigationSuggestions.length === 0) return;
+  lines.push("", "## Suggested Investigations");
+  for (const suggestion of plan.investigationSuggestions) {
+    lines.push(`- [${suggestion.priority}] ${suggestion.emailId}: ${suggestion.reason} (${suggestion.suggestedTool})`);
+  }
+  if (plan.investigationResults && plan.investigationResults.length > 0) {
+    lines.push("", "## Investigation Results");
+    for (const result of plan.investigationResults) {
+      lines.push(`- ${result.toolName}: ${summarizeInvestigationObservation(result.observation)}${result.isError ? " (error)" : ""}`);
+    }
+  }
+}
+
+function summarizeInvestigationObservation(observation: unknown): string {
+  if (typeof observation === "string") return observation;
+  if (typeof observation !== "object" || observation === null) return String(observation);
+  const value = observation as { note?: unknown; domain?: unknown; riskLevel?: unknown; content?: unknown };
+  if (typeof value.note === "string") return value.note;
+  if (typeof value.domain === "string" && typeof value.riskLevel === "string") {
+    return `${value.domain} risk=${value.riskLevel}`;
+  }
+  if (typeof value.content === "string") return value.content.slice(0, 120);
+  return JSON.stringify(observation).slice(0, 160);
 }
 
 export class ReportStore {

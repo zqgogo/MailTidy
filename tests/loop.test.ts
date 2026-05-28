@@ -6,10 +6,12 @@ import { describe, expect, it } from "vitest";
 import { CheckpointStore } from "../src/agent/recovery.js";
 import { TraceStore } from "../src/agent/trace.js";
 import { runAgentLoop } from "../src/agent/loop.js";
+import { Category, type EmailJudgment, type EmailMessage } from "../src/data/models.js";
 import { ReportStore } from "../src/data/reports.js";
 import { JsonTaskStore } from "../src/data/tasks.js";
 import { MockEmailConnector } from "../src/integrations/email/mock.js";
 import { HeuristicLLMClient } from "../src/integrations/llm/heuristic.js";
+import type { LLMClient, ModelProfile } from "../src/llm/client.js";
 import { LLMRouter } from "../src/llm/router.js";
 
 async function withTempState<T>(run: (dir: string) => Promise<T>): Promise<T> {
@@ -134,6 +136,37 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("runs bounded investigation tools before reporting suggested investigations", async () => {
+    await withTempState(async (dir) => {
+      const runtime = deps(dir);
+      runtime.connector.messages.unshift({
+        id: "m-risk",
+        sender: "security@example.com",
+        subject: "Verify your account",
+        snippet: "Use https://example-login-security.test/verify today.",
+        date: new Date().toISOString(),
+        unread: true,
+      });
+
+      const result = await runAgentLoop(
+        { ...runtime, router: new LLMRouter({ heuristic: new LowConfidenceLLMClient() }) },
+        { limit: 1 },
+      );
+
+      expect(result.plan.investigationSuggestions?.map((suggestion) => suggestion.trigger)).toEqual([
+        "suspicious_link",
+        "low_confidence",
+      ]);
+      expect(result.plan.investigationResults?.map((entry) => entry.toolName)).toEqual([
+        "verify_domain",
+        "read_original_record",
+      ]);
+      expect(result.report).toContain("## Suggested Investigations");
+      expect(result.report).toContain("## Investigation Results");
+      expect(result.report).toContain("verify_domain backend not yet implemented");
+    });
+  });
+
   it("runs daily brief through the loop entry-point", async () => {
     await withTempState(async (dir) => {
       const runtime = deps(dir);
@@ -220,3 +253,30 @@ describe("runAgentLoop", () => {
     }
   });
 });
+
+class LowConfidenceLLMClient implements LLMClient {
+  readonly profile: ModelProfile = {
+    name: "low-confidence-test",
+    provider: "test",
+    supportsTools: false,
+  };
+
+  async classifyEmail(message: EmailMessage): Promise<EmailJudgment> {
+    return {
+      emailId: message.id,
+      category: Category.NOTIFICATION,
+      confidence: 0.62,
+      urgency: 3,
+      reason: "test low confidence",
+      actionSuggestion: "review",
+    };
+  }
+
+  async draftReply(): Promise<string> {
+    return "test";
+  }
+
+  async summarizeNewsletters(): Promise<string> {
+    return "test";
+  }
+}

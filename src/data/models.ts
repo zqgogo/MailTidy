@@ -80,6 +80,25 @@ export interface AgentPlan {
   judgments: EmailJudgment[];
   actions: PlannedAction[];
   humanPrompts: string[];
+  investigationSuggestions?: InvestigationSuggestion[];
+  investigationResults?: InvestigationResult[];
+}
+
+export interface InvestigationSuggestion {
+  id: string;
+  emailId: string;
+  trigger: "low_confidence" | "suspicious_link" | "preference_conflict";
+  reason: string;
+  suggestedTool: string;
+  suggestedArgs: Record<string, unknown>;
+  priority: "low" | "medium" | "high";
+}
+
+export interface InvestigationResult {
+  suggestionId: string;
+  toolName: string;
+  isError: boolean;
+  observation: unknown;
 }
 
 export interface ExecutionResult {

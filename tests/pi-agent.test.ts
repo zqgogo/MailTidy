@@ -53,4 +53,22 @@ describe("createMailTidyPiAgent", () => {
       faux.unregister();
     }
   });
+
+  it("can include investigation suggestions in the system prompt", () => {
+    const prompt = mailTidySystemPrompt([
+      {
+        id: "investigate:m1:low_confidence",
+        emailId: "m1",
+        trigger: "low_confidence",
+        reason: "Classification confidence is low.",
+        suggestedTool: "read_original_record",
+        suggestedArgs: { kind: "email", id: "m1" },
+        priority: "medium",
+      },
+    ]);
+
+    expect(prompt).toContain("Active investigation suggestions");
+    expect(prompt).toContain("read_original_record");
+    expect(prompt).toContain("m1");
+  });
 });

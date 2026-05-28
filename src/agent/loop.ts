@@ -27,6 +27,8 @@ import {
   type EmailJudgment,
   type EmailMessage,
   type ExecutionResult,
+  type InvestigationResult,
+  type InvestigationSuggestion,
   emptyExecutionResult,
 } from "../data/models.js";
 import {
@@ -39,6 +41,7 @@ import {
 } from "../data/reports.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { DecisionPolicy } from "./policies.js";
+import { suggestInvestigations } from "./deepThink.js";
 import { exitFailed, exitInterrupted, exitOk, type ExitDecision } from "./exits.js";
 import { runMailTidyPiAgent } from "./piRunner.js";
 import { createTraceEvent, TraceStore } from "./trace.js";
@@ -169,9 +172,23 @@ export async function runAgentLoop(
 
     record.progress.phase = "plan";
     plan = policy.buildPlan(sop, judgments, memory);
+    plan.investigationSuggestions = suggestInvestigations(messages, judgments, memory);
     budget.steps += 1;
-    await checkpoint(deps, record.taskId, budget, `Planned ${plan.actions.length} action group(s).`);
+    await checkpoint(
+      deps,
+      record.taskId,
+      budget,
+      `Planned ${plan.actions.length} action group(s); ${plan.investigationSuggestions.length} investigation suggestion(s).`,
+    );
     await deps.tasks.update(record);
+
+    plan.investigationResults = await runSuggestedInvestigations({
+      deps,
+      record,
+      budget,
+      tools,
+      suggestions: plan.investigationSuggestions,
+    });
 
     if (sop === "daily_brief") {
       record.progress.phase = "report";
@@ -246,6 +263,55 @@ export async function runAgentLoop(
     }
     return { taskId: record.taskId, exit, plan, execution, report };
   }
+}
+
+async function runSuggestedInvestigations(args: {
+  deps: AgentLoopDeps;
+  record: Awaited<ReturnType<JsonTaskStore["create"]>>;
+  budget: ReturnType<typeof emptyBudget>;
+  tools: ReturnType<typeof createMailTidyTools>;
+  suggestions: InvestigationSuggestion[];
+}): Promise<InvestigationResult[]> {
+  const results: InvestigationResult[] = [];
+  for (const suggestion of args.suggestions) {
+    assertStepBudget(args.budget.steps);
+    const tool = requireTool(args.tools, suggestion.suggestedTool);
+    try {
+      const observation = await tool.invoke(suggestion.suggestedArgs);
+      args.budget.steps += 1;
+      args.budget.toolCalls += 1;
+      results.push({
+        suggestionId: suggestion.id,
+        toolName: tool.name,
+        isError: false,
+        observation,
+      });
+      await checkpoint(
+        args.deps,
+        args.record.taskId,
+        args.budget,
+        `Investigation ${results.length}/${args.suggestions.length}: ${suggestion.trigger} via ${tool.name}.`,
+      );
+    } catch (error) {
+      args.budget.steps += 1;
+      args.budget.toolCalls += 1;
+      args.budget.toolFailures += 1;
+      results.push({
+        suggestionId: suggestion.id,
+        toolName: tool.name,
+        isError: true,
+        observation: error instanceof Error ? error.message : String(error),
+      });
+      await checkpoint(
+        args.deps,
+        args.record.taskId,
+        args.budget,
+        `Investigation failed: ${suggestion.trigger} via ${tool.name}.`,
+      );
+    }
+    await args.deps.tasks.update(args.record);
+  }
+  return results;
 }
 
 async function runPiBackedAgentLoop(

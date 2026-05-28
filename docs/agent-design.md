@@ -989,12 +989,12 @@ src/
     state.ts           ⏳ Phase 1 占位（pi AgentState 之上的任务态封装）
     context.ts         ⏳ Phase 1 占位（WorkingContext / EvidenceRef）
     compression.ts     ⏳ Phase 1 占位（长上下文压缩）
-    deepThink.ts       ⏳ Phase 1 占位（主动调查触发结果）
+    deepThink.ts       ✅ Phase 1.6 主动调查触发建议（低置信度 / 可疑链接 / 偏好冲突）
     exits.ts           ✅ ExitReason 枚举 + 退出助手
     recovery.ts        ✅ CheckpointStore + 恢复扫描原语
-    planner.ts         ⏳ Phase 1 占位（tool-use 输出 → PlannedStep）
+    planner.ts         ✅ Phase 1 tool-use 输出 → PlannedStep
     executor.ts        ⏳ Phase 1 占位（PlannedStep → ToolObservation）
-    trace.ts           ⏳ Phase 1 占位（事件流）
+    trace.ts           ✅ Phase 1 trace event + JSONL store
     skills/            ✅ 四条 SOP markdown（运行时 loader Phase 1 接入）
   data/
     models.ts          ✅ EmailMessage / EmailJudgment / AgentPlan / ExecutionResult / Category / ActionType / StyleProfile
@@ -1088,7 +1088,9 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.5c history 产物闭环已落地：主循环可注入 [src/agent/trace.ts](src/agent/trace.ts) 的 `TraceStore` 与 [src/data/reports.ts](src/data/reports.ts) 的 `ReportStore`，每个 deterministic checkpoint 会追加 `.mailtidy/traces/<taskId>.jsonl`，正常结束写 `.mailtidy/reports/<taskId>.md`，预算 / 错误退出写 `<taskId>-partial.md`；pi runner 也会把 pi event stream 和最终文本写入同一套目录。CLI `--agent` 路径现在把 `--state-dir` 传给 history tools，因此 `read_trace_slice` / `read_report_summary` 不再只是 schema，已经能回查本地任务产物。`tests/loop.test.ts` 覆盖完成报告、半成品报告和 trace 落盘。
 - Phase 1.5d trace / planner 基础工具已补齐：[src/agent/trace.ts](src/agent/trace.ts) 支持 trace event 创建、JSONL 编解码、按 `stepId` 窗口切片；[src/agent/planner.ts](src/agent/planner.ts) 支持把 LLM 输出归一成 `tool_call` / `finish`；[tests/trace-planner.test.ts](tests/trace-planner.test.ts) 覆盖边界行为。
 - Phase 1.5e 本地配置层已落地：[src/ops/config.ts](src/ops/config.ts) 读取 `.mailtidy/config.json`，支持 `llm.provider` (`heuristic` / `openai` / `anthropic`) 与 `llm.model`；CLI `--llm-provider` / `--llm-model` 仍可临时覆盖配置。`tests/config.test.ts` 覆盖默认值、文件读取、CLI override 与非法 provider。
-- 测试 41/41 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 1.6a 主动调查触发器已落地：[src/agent/deepThink.ts](src/agent/deepThink.ts) 会对低置信度、可疑链接域名、当前判断与 sender 偏好冲突生成结构化 `InvestigationSuggestion`；[src/agent/loop.ts](src/agent/loop.ts) 在 plan 阶段把建议写入 `AgentPlan` 和 checkpoint digest；[src/data/reports.ts](src/data/reports.ts) 在 cleanup / daily brief 报告中输出 `Suggested Investigations`。`tests/deep-think.test.ts` 覆盖三类触发。
+- Phase 1.6b 受限调查执行已接入 deterministic loop：plan 后会按建议调用最多 3 个受限工具（如 `verify_domain` / `read_original_record` / `recall_memory`），把 observation 写入 `AgentPlan.investigationResults`、checkpoint 和报告的 `Investigation Results`。pi 侧 [src/agent/piAgent.ts](src/agent/piAgent.ts) 已支持把调查建议注入 system prompt。`tests/loop.test.ts` 覆盖可疑链接 + 低置信度触发工具调用，`tests/pi-agent.test.ts` 覆盖 prompt 注入。
+- 测试 46/46 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
@@ -1108,7 +1110,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.3 | ✅ 完成：pi AgentTool 适配层；pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；pi `Agent` 工厂；pi runner + `runAgentLoop({ engine: "pi" })`；CLI `recover --demo` continue；recovery continuation helper + 测试 |
 | 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；分级自动化默认行为和 kill/restart/continue e2e 均已覆盖 |
 | 1.5 | ✅ 基本完成：OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；CLI `--agent` 支持 `--llm-provider heuristic/openai/anthropic` + `--llm-model`，provider 失败会通过 `FallbackLLMClient` 降级到 heuristic 并 stderr 明示；trace/report 产物落盘与 history 回查目录已闭环；`ops/config.ts` 已支持 `.mailtidy/config.json` provider/model 持久配置，CLI 参数可覆盖 |
-| 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |
+| 1.6 | ✅ 基本完成：`deepThink.ts` 已生成低置信度 / 可疑链接 / 偏好冲突的结构化调查建议；deterministic loop 已执行受限调查工具并写入 plan / report / checkpoint；pi prompt 已支持注入调查建议。后续 Phase 1.8 再把全文读取和域名核对从 stub 后端升级为真实实现 |
 | 1.7 | 实现"建议丰富度"输出格式：给 `EmailJudgment` 增加 `Suggestion` 子结构（6 字段） |
 | 1.8 | 加 trace / context 单测：低置信度邮件必须触发 `readEmail`，含可疑链接的邮件必须触发域名核对；超长 thread 必须先摘要压缩 |
 

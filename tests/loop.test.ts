@@ -4,7 +4,9 @@ import os from "node:os";
 import { fauxAssistantMessage, fauxToolCall, registerFauxProvider } from "@earendil-works/pi-ai";
 import { describe, expect, it } from "vitest";
 import { CheckpointStore } from "../src/agent/recovery.js";
+import { TraceStore } from "../src/agent/trace.js";
 import { runAgentLoop } from "../src/agent/loop.js";
+import { ReportStore } from "../src/data/reports.js";
 import { JsonTaskStore } from "../src/data/tasks.js";
 import { MockEmailConnector } from "../src/integrations/email/mock.js";
 import { HeuristicLLMClient } from "../src/integrations/llm/heuristic.js";
@@ -25,6 +27,9 @@ function deps(dir: string) {
     router: new LLMRouter({ heuristic: new HeuristicLLMClient() }),
     tasks: new JsonTaskStore(path.join(dir, "tasks")),
     checkpoints: new CheckpointStore(path.join(dir, "checkpoints")),
+    reports: new ReportStore(path.join(dir, "reports")),
+    traces: new TraceStore(path.join(dir, "traces")),
+    stateDir: dir,
   };
 }
 
@@ -107,6 +112,10 @@ describe("runAgentLoop", () => {
       const checkpoint = await runtime.checkpoints.load(result.taskId);
       expect(checkpoint?.turn).toBeGreaterThan(0);
       expect(checkpoint?.workingContextDigest).toContain("Report generated");
+
+      await expect(runtime.reports.read(result.taskId)).resolves.toContain("# MailTidy Cleanup Report");
+      const trace = await runtime.traces.load(result.taskId);
+      expect(trace.some((event) => event.kind === "checkpoint_written")).toBe(true);
     });
   });
 
@@ -121,6 +130,7 @@ describe("runAgentLoop", () => {
       const task = await runtime.tasks.load(result.taskId);
       expect(task?.status).toBe("interrupted");
       expect(task?.exitReason).toBe("max_steps_exceeded");
+      await expect(runtime.reports.read(result.taskId, { partial: true })).resolves.toContain("max steps exceeded");
     });
   });
 

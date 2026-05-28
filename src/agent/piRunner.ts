@@ -7,18 +7,22 @@ import {
 import type { Message, Model } from "@earendil-works/pi-ai";
 import type { TaskRecord } from "../data/tasks.js";
 import type { JsonTaskStore } from "../data/tasks.js";
+import type { ReportStore } from "../data/reports.js";
 import type { AnyToolDefinition } from "../tools/base.js";
 import { toPiAgentTools } from "../tools/pi.js";
 import { emptyBudget, type AgentCheckpoint, type BudgetSnapshot, type CheckpointStore } from "./recovery.js";
 import { exitFailed, exitInterrupted, exitOk, type ExitDecision } from "./exits.js";
 import { createMailTidyAgentHooks } from "./piHooks.js";
 import { mailTidySystemPrompt } from "./piAgent.js";
+import { createTraceEvent, type TraceStore } from "./trace.js";
 
 export interface PiRunnerDeps {
   tasks: JsonTaskStore;
   checkpoints: CheckpointStore;
   tools: AnyToolDefinition[];
   model: Model<any>;
+  reports?: ReportStore;
+  traces?: TraceStore;
 }
 
 export interface RunPiAgentOptions {
@@ -93,8 +97,11 @@ export async function runMailTidyPiAgent(
       workingContextDigest: "pi agent run completed",
       persistedAt: new Date().toISOString(),
     });
+    await persistPiEvents(deps.traces, task.taskId, events);
+    const finalText = finalAssistantText(messages);
+    await deps.reports?.write(task.taskId, finalText || "pi agent run completed");
     await deps.tasks.markCompleted(task);
-    return { taskId: task.taskId, exit: exitOk("pi agent run completed"), messages, finalText: finalAssistantText(messages) };
+    return { taskId: task.taskId, exit: exitOk("pi agent run completed"), messages, finalText };
   } catch (err) {
     const message = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
     const exit = message.includes("max steps")
@@ -105,6 +112,8 @@ export async function runMailTidyPiAgent(
     } else {
       await deps.tasks.markFailed(task, exit.reason, exit.message);
     }
+    await persistPiEvents(deps.traces, task.taskId, events);
+    await deps.reports?.write(task.taskId, ["# MailTidy Partial Report", "", message].join("\n"), { partial: true });
     return { taskId: task.taskId, exit, messages: context.messages, finalText: "" };
   }
 }
@@ -128,4 +137,14 @@ function finalAssistantText(messages: AgentMessage[]): string {
 
 function budgetSnapshot(budget: BudgetSnapshot): BudgetSnapshot {
   return { ...budget };
+}
+
+async function persistPiEvents(traces: TraceStore | undefined, taskId: string, events: AgentEvent[]): Promise<void> {
+  if (!traces) return;
+  for (const [index, event] of events.entries()) {
+    await traces.append(createTraceEvent(taskId, event.type as any, {
+      stepId: `pi-${index + 1}`,
+      payload: event as unknown as Record<string, unknown>,
+    }));
+  }
 }

@@ -76,12 +76,14 @@ tool-use tests. `recover --demo` can now continue from checkpoint through the
 pi runner, and recovery continuation has a non-interactive e2e test. The four
 demo SOP commands now support `--agent` loop entry-points while the legacy
 pipeline remains the default. The kill/restart/recover demo path is covered by
-an end-to-end test. See
+an end-to-end test. `--agent` commands can select heuristic/OpenAI/Anthropic
+LLM clients with fallback, and agent runs now write report and trace artifacts
+under `.mailtidy/{reports,traces}` for bounded history lookup. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: wire CLI/config provider selection and LLM fallback, then add
-  proactive investigation triggers and richer suggestions.
+- Phase 1: move provider selection into persistent config, then add proactive
+  investigation triggers and richer suggestions.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

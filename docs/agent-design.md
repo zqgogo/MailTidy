@@ -1086,7 +1086,9 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.4e kill/restart/continue 端到端验收已自动化：[tests/recovery-kill-e2e.test.ts](tests/recovery-kill-e2e.test.ts) 启动真实 CLI，等 checkpoint 落盘后 `SIGKILL` 主进程，再运行 `recover --demo` 并选择 `[c]`，验证任务从 checkpoint 续跑到 completed
 - Phase 1.5a 真实 LLM 窄接口 adapter 已落地：[src/integrations/llm/openai.ts](src/integrations/llm/openai.ts) / [src/integrations/llm/anthropic.ts](src/integrations/llm/anthropic.ts) 通过 [src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 包装 `@earendil-works/pi-ai` 的 `getModels()` + `completeSimple()`，实现 `classifyEmail` / `draftReply` / `summarizeNewsletters`；`tests/llm-adapters.test.ts` 用注入 completion 无网络覆盖
 - Phase 1.5b 决策策略支持可调自动化：`DecisionPolicy({ automationMode })` 支持 conservative / balanced / aggressive；`AgentMemory.actionPreferences` 可把 `label:Newsletters` 等动作设为 `confirm` 或 `auto`，测试覆盖偏好收紧默认自动化
-- 测试 32/32 全绿，`npm test -- --run` 与 `npm run build` 均通过
+- Phase 1.5c history 产物闭环已落地：主循环可注入 [src/agent/trace.ts](src/agent/trace.ts) 的 `TraceStore` 与 [src/data/reports.ts](src/data/reports.ts) 的 `ReportStore`，每个 deterministic checkpoint 会追加 `.mailtidy/traces/<taskId>.jsonl`，正常结束写 `.mailtidy/reports/<taskId>.md`，预算 / 错误退出写 `<taskId>-partial.md`；pi runner 也会把 pi event stream 和最终文本写入同一套目录。CLI `--agent` 路径现在把 `--state-dir` 传给 history tools，因此 `read_trace_slice` / `read_report_summary` 不再只是 schema，已经能回查本地任务产物。`tests/loop.test.ts` 覆盖完成报告、半成品报告和 trace 落盘。
+- Phase 1.5d trace / planner 基础工具已补齐：[src/agent/trace.ts](src/agent/trace.ts) 支持 trace event 创建、JSONL 编解码、按 `stepId` 窗口切片；[src/agent/planner.ts](src/agent/planner.ts) 支持把 LLM 输出归一成 `tool_call` / `finish`；[tests/trace-planner.test.ts](tests/trace-planner.test.ts) 覆盖边界行为。
+- 测试 37/37 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
@@ -1105,7 +1107,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.2 | ✅ 完成最小版 [src/agent/loop.ts](src/agent/loop.ts)：任务记录先写盘、工具注册表执行、每步 checkpoint、step budget 退出；完整 pi `Agent` 接入顺延到 1.3 |
 | 1.3 | ✅ 完成：pi AgentTool 适配层；pi lifecycle hooks（风险闸门 / checkpoint / stop 条件）；pi `Agent` 工厂；pi runner + `runAgentLoop({ engine: "pi" })`；CLI `recover --demo` continue；recovery continuation helper + 测试 |
 | 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；分级自动化默认行为和 kill/restart/continue e2e 均已覆盖 |
-| 1.5 | 进行中：✅ OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；下一步接 CLI/config provider 选择与失败降级 |
+| 1.5 | 进行中：✅ OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；✅ CLI `--agent` 已支持 `--llm-provider heuristic/openai/anthropic` + `--llm-model`，provider 失败会通过 `FallbackLLMClient` 降级到 heuristic 并 stderr 明示；✅ trace/report 产物落盘与 history 回查目录已闭环；下一步把 provider 选择从 CLI 参数下沉到 `ops/config.ts` 的持久配置 |
 | 1.6 | 实现主动调查触发器：把 §2.8 触发条件接入 policy 层，命中时把"建议你接下来调查 X"作为 system 提示注入 State |
 | 1.7 | 实现"建议丰富度"输出格式：给 `EmailJudgment` 增加 `Suggestion` 子结构（6 字段） |
 | 1.8 | 加 trace / context 单测：低置信度邮件必须触发 `readEmail`，含可疑链接的邮件必须触发域名核对；超长 thread 必须先摘要压缩 |

@@ -18,8 +18,10 @@ import { Command } from "commander";
 import path from "node:path";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
 import { JsonMemoryStore } from "../data/memory.js";
+import { ReportStore } from "../data/reports.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
+import { TraceStore } from "../agent/trace.js";
 import { LegacyMailTidyAgent } from "../agent/legacy.js";
 import { runAgentLoop, type RunAgentLoopOptions } from "../agent/loop.js";
 import { continueRecoveredTask } from "../agent/recoveryContinue.js";
@@ -38,6 +40,8 @@ interface RuntimePaths {
   memory: string;
   tasksDir: string;
   checkpointsDir: string;
+  reportsDir: string;
+  tracesDir: string;
 }
 
 function resolvePaths(rootArg: string): RuntimePaths {
@@ -47,6 +51,8 @@ function resolvePaths(rootArg: string): RuntimePaths {
     memory: path.join(root, "memory.json"),
     tasksDir: path.join(root, "tasks"),
     checkpointsDir: path.join(root, "checkpoints"),
+    reportsDir: path.join(root, "reports"),
+    tracesDir: path.join(root, "traces"),
   };
 }
 
@@ -107,7 +113,7 @@ async function continueDemoTask(
       {
         tasks: new JsonTaskStore(paths.tasksDir),
         checkpoints: new CheckpointStore(paths.checkpointsDir),
-        tools: createMailTidyTools({ connector, llm, memory }),
+        tools: createMailTidyTools({ connector, llm, memory, stateDir: paths.root }),
         model: faux.getModel(),
       },
       task,
@@ -344,10 +350,13 @@ async function runAgentCommand(
   const result = await runAgentLoop(
     {
       connector: new MockEmailConnector(),
-            router: new LLMRouter({ primary: llm, heuristic: new HeuristicLLMClient() }, {}, "primary"),
+      router: new LLMRouter({ primary: llm, heuristic: new HeuristicLLMClient() }, {}, "primary"),
       tasks: new JsonTaskStore(paths.tasksDir),
       checkpoints: new CheckpointStore(paths.checkpointsDir),
       memory,
+      reports: new ReportStore(paths.reportsDir),
+      traces: new TraceStore(paths.tracesDir),
+      stateDir: paths.root,
     },
     loopOptions,
   );

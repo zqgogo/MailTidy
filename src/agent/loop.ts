@@ -32,6 +32,7 @@ import {
 import {
   cleanupReport,
   dailyBrief,
+  ReportStore,
   type SubscriptionRow,
   subscriptionsCsv,
   subscriptionsMarkdown,
@@ -40,6 +41,7 @@ import { createMailTidyTools } from "../tools/registry.js";
 import { DecisionPolicy } from "./policies.js";
 import { exitFailed, exitInterrupted, exitOk, type ExitDecision } from "./exits.js";
 import { runMailTidyPiAgent } from "./piRunner.js";
+import { createTraceEvent, TraceStore } from "./trace.js";
 
 export interface AgentLoopDeps {
   router: LLMRouter;
@@ -49,6 +51,9 @@ export interface AgentLoopDeps {
   memory?: AgentMemory;
   policy?: DecisionPolicy;
   piModel?: Model<any>;
+  reports?: ReportStore;
+  traces?: TraceStore;
+  stateDir?: string;
 }
 
 export interface RunAgentLoopOptions {
@@ -100,6 +105,7 @@ export async function runAgentLoop(
     connector: deps.connector,
     llm: deps.router.clientFor("classification"),
     memory,
+    stateDir: deps.stateDir,
   });
   const fetchRecent = requireTool(tools, "fetch_recent_email");
   const classifyEmail = requireTool(tools, "classify_email");
@@ -121,6 +127,7 @@ export async function runAgentLoop(
         searchEmail,
         memory,
       });
+      await writeReport(deps, record.taskId, scanned.report);
       await deps.tasks.markCompleted(record);
       return { taskId: record.taskId, exit: exitOk(), plan, execution, report: scanned.report };
     }
@@ -170,6 +177,7 @@ export async function runAgentLoop(
       record.progress.phase = "report";
       report = dailyBrief(plan, messages);
       await checkpoint(deps, record.taskId, budget, "Daily brief generated.");
+      await writeReport(deps, record.taskId, report);
       await deps.tasks.markCompleted(record);
       return { taskId: record.taskId, exit: exitOk(), plan, execution, report };
     }
@@ -188,6 +196,7 @@ export async function runAgentLoop(
       });
       report = draftRepliesReport(execution, record.progress.partialArtifacts?.draftPreviews);
       await checkpoint(deps, record.taskId, budget, "Draft replies generated.");
+      await writeReport(deps, record.taskId, report);
       await deps.tasks.markCompleted(record);
       return { taskId: record.taskId, exit: exitOk(), plan, execution, report };
     }
@@ -220,6 +229,7 @@ export async function runAgentLoop(
     const newsletterSummary = await deps.router.clientFor("summary").summarizeNewsletters(newsletters);
     report = cleanupReport(plan, execution, messages, newsletterSummary);
     await checkpoint(deps, record.taskId, budget, "Report generated.");
+    await writeReport(deps, record.taskId, report);
     await deps.tasks.markCompleted(record);
     return { taskId: record.taskId, exit: exitOk(), plan, execution, report };
   } catch (err) {
@@ -229,8 +239,10 @@ export async function runAgentLoop(
       : exitFailed("uncaught_error", message);
     if (exit.recoverable) {
       await deps.tasks.markInterrupted(record, exit.reason);
+      await writeReport(deps, record.taskId, partialReport(report, exit.message), { partial: true });
     } else {
       await deps.tasks.markFailed(record, exit.reason, exit.message);
+      await writeReport(deps, record.taskId, partialReport(report, exit.message), { partial: true });
     }
     return { taskId: record.taskId, exit, plan, execution, report };
   }
@@ -247,6 +259,7 @@ async function runPiBackedAgentLoop(
     connector: deps.connector,
     llm: deps.router.clientFor("classification"),
     memory: deps.memory ?? emptyMemory(),
+    stateDir: deps.stateDir,
   });
   const result = await runMailTidyPiAgent(
     {
@@ -254,6 +267,8 @@ async function runPiBackedAgentLoop(
       checkpoints: deps.checkpoints,
       tools,
       model: deps.piModel,
+      reports: deps.reports,
+      traces: deps.traces,
     },
     {
       invocation: { sop: options.sop ?? "inbox_cleanup", ...options },
@@ -462,7 +477,7 @@ function subscriptionCategory(service: string): string {
 }
 
 async function checkpoint(
-  deps: Pick<AgentLoopDeps, "checkpoints">,
+  deps: Pick<AgentLoopDeps, "checkpoints" | "traces">,
   taskId: string,
   budget: ReturnType<typeof emptyBudget>,
   digest: string,
@@ -475,7 +490,26 @@ async function checkpoint(
     workingContextDigest: digest,
     persistedAt: new Date().toISOString(),
   });
+  await deps.traces?.append(createTraceEvent(taskId, "checkpoint_written", {
+    stepId: `step-${budget.steps}`,
+    payload: { digest, budget: { ...budget } },
+  }));
   await maybePauseAfterCheckpoint();
+}
+
+async function writeReport(
+  deps: Pick<AgentLoopDeps, "reports">,
+  taskId: string,
+  report: string,
+  options: { partial?: boolean } = {},
+): Promise<void> {
+  if (!deps.reports) return;
+  await deps.reports.write(taskId, report, options);
+}
+
+function partialReport(report: string, reason: string | undefined): string {
+  const base = report.trim().length > 0 ? report.trim() : "# MailTidy Partial Report";
+  return [base, "", "## Run Stopped", reason ?? "The run stopped before completion."].join("\n");
 }
 
 async function maybePauseAfterCheckpoint(): Promise<void> {

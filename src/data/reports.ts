@@ -5,6 +5,8 @@
  * Telegram Markdown 等格式时只动这里。
  */
 
+import { mkdir, readFile, writeFile } from "node:fs/promises";
+import path from "node:path";
 import { Category, type AgentPlan, type EmailMessage, type ExecutionResult } from "./models.js";
 
 export interface SubscriptionRow {
@@ -124,4 +126,21 @@ export function subscriptionsCsv(rows: SubscriptionRow[]): string {
     );
   }
   return out.join("\n") + "\n";
+}
+
+export class ReportStore {
+  constructor(private readonly dir: string) {}
+
+  async write(taskId: string, content: string, options: { partial?: boolean } = {}): Promise<void> {
+    await mkdir(this.dir, { recursive: true });
+    await writeFile(this.pathFor(taskId, options), content, "utf-8");
+  }
+
+  async read(taskId: string, options: { partial?: boolean } = {}): Promise<string> {
+    return readFile(this.pathFor(taskId, options), "utf-8");
+  }
+
+  pathFor(taskId: string, options: { partial?: boolean } = {}): string {
+    return path.join(this.dir, `${taskId}${options.partial ? "-partial" : ""}.md`);
+  }
 }

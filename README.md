@@ -52,7 +52,7 @@ src/                      # TypeScript source, Phase 0 + recovery scaffold
   integrations/           # email / LLM / notification adapters
   interfaces/             # CLI (commander), readline prompts, future web / desktop
   llm/                    # provider-neutral LLMClient interface + Router + Usage
-  ops/                    # config / logging / scheduler / audit (placeholders)
+  ops/                    # config plus logging / scheduler / audit placeholders
   research/               # research-style analysis (Phase 3 placeholders)
   rules/                  # custom rule engine (Phase 3 placeholders)
   tools/                  # ToolDefinition + per-tool wrappers (Phase 1 placeholders)
@@ -77,13 +77,13 @@ pi runner, and recovery continuation has a non-interactive e2e test. The four
 demo SOP commands now support `--agent` loop entry-points while the legacy
 pipeline remains the default. The kill/restart/recover demo path is covered by
 an end-to-end test. `--agent` commands can select heuristic/OpenAI/Anthropic
-LLM clients with fallback, and agent runs now write report and trace artifacts
-under `.mailtidy/{reports,traces}` for bounded history lookup. See
+LLM clients from `.mailtidy/config.json` or CLI overrides with fallback, and
+agent runs now write report and trace artifacts under `.mailtidy/{reports,traces}`
+for bounded history lookup. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: move provider selection into persistent config, then add proactive
-  investigation triggers and richer suggestions.
+- Phase 1: add proactive investigation triggers and richer suggestions.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

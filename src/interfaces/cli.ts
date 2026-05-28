@@ -32,6 +32,7 @@ import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
 import { OpenAILLMClient } from "../integrations/llm/openai.js";
 import type { LLMClient } from "../llm/client.js";
 import { LLMRouter } from "../llm/router.js";
+import { loadMailTidyConfig, resolveLLMConfig, type LLMProviderName } from "../ops/config.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
 
@@ -42,6 +43,7 @@ interface RuntimePaths {
   checkpointsDir: string;
   reportsDir: string;
   tracesDir: string;
+  config: string;
 }
 
 function resolvePaths(rootArg: string): RuntimePaths {
@@ -53,6 +55,7 @@ function resolvePaths(rootArg: string): RuntimePaths {
     checkpointsDir: path.join(root, "checkpoints"),
     reportsDir: path.join(root, "reports"),
     tracesDir: path.join(root, "traces"),
+    config: path.join(root, "config.json"),
   };
 }
 
@@ -189,7 +192,7 @@ async function main(): Promise<void> {
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Approve confirmation-gated actions", false)
     .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
-    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
     .option("--dimension <name>", "Custom dimension to classify (repeatable)", collect, [] as string[])
     .action(async (options) => {
@@ -200,7 +203,7 @@ async function main(): Promise<void> {
           customDimensions: options.dimension,
           autoConfirm: options.autoConfirm,
           automationMode: parseAutomationMode(options.automationMode),
-          llmProvider: parseLLMProvider(options.llmProvider),
+          llmProvider: options.llmProvider,
           llmModel: options.llmModel,
         });
         console.log(result.report);
@@ -223,7 +226,7 @@ async function main(): Promise<void> {
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
-    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
     .option("--dimension <name>", "Custom dimension (repeatable)", collect, [] as string[])
     .action(async (options) => {
@@ -234,7 +237,7 @@ async function main(): Promise<void> {
           sop: "daily_brief",
           customDimensions: options.dimension,
           automationMode: parseAutomationMode(options.automationMode),
-          llmProvider: parseLLMProvider(options.llmProvider),
+          llmProvider: options.llmProvider,
           llmModel: options.llmModel,
         });
         console.log(result.report);
@@ -253,7 +256,7 @@ async function main(): Promise<void> {
     .description("Scan for likely subscriptions")
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
-    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
     .action(async (options) => {
       requireDemo(options);
@@ -261,7 +264,7 @@ async function main(): Promise<void> {
       if (options.agent) {
         const result = await runAgentCommand(paths, {
           sop: "subscription_scan",
-          llmProvider: parseLLMProvider(options.llmProvider),
+          llmProvider: options.llmProvider,
           llmModel: options.llmModel,
         });
         console.log(result.report);
@@ -284,7 +287,7 @@ async function main(): Promise<void> {
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Save proposed drafts instead of previewing only", false)
     .option("--dry-run", "Preview draft creation without writing drafts", false)
-    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic", "heuristic")
+    .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
     .action(async (options) => {
       requireDemo(options);
@@ -294,7 +297,7 @@ async function main(): Promise<void> {
           sop: "draft_replies",
           autoConfirm: options.autoConfirm,
           dryRun: options.dryRun,
-          llmProvider: parseLLMProvider(options.llmProvider),
+          llmProvider: options.llmProvider,
           llmModel: options.llmModel,
         });
         console.log(result.report);
@@ -327,17 +330,10 @@ function parseAutomationMode(value: string): "conservative" | "balanced" | "aggr
   throw new Error(`Invalid --automation-mode "${value}". Expected conservative, balanced, or aggressive.`);
 }
 
-type LLMProviderName = "heuristic" | "openai" | "anthropic";
-
 type AgentCommandOptions = RunAgentLoopOptions & {
-  llmProvider?: LLMProviderName;
+  llmProvider?: string;
   llmModel?: string;
 };
-
-function parseLLMProvider(value: string): LLMProviderName {
-  if (value === "heuristic" || value === "openai" || value === "anthropic") return value;
-  throw new Error(`Invalid --llm-provider "${value}". Expected heuristic, openai, or anthropic.`);
-}
 
 async function runAgentCommand(
   paths: RuntimePaths,
@@ -345,7 +341,12 @@ async function runAgentCommand(
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
   const memoryStore = new JsonMemoryStore(paths.memory);
   const memory = await memoryStore.load();
-  const llm = buildLLMClient(options.llmProvider ?? "heuristic", options.llmModel);
+  const config = await loadMailTidyConfig(paths.config);
+  const llmConfig = resolveLLMConfig(config, {
+    llmProvider: options.llmProvider,
+    llmModel: options.llmModel,
+  });
+  const llm = buildLLMClient(llmConfig.provider, llmConfig.model);
   const { llmProvider: _llmProvider, llmModel: _llmModel, ...loopOptions } = options;
   const result = await runAgentLoop(
     {

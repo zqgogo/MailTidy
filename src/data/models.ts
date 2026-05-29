@@ -61,8 +61,18 @@ export interface EmailJudgment {
   urgency: number;
   reason: string;
   actionSuggestion: string;
+  suggestion?: Suggestion;
   requiresConfirmation?: boolean;
   customDimensions?: Record<string, unknown>;
+}
+
+export interface Suggestion {
+  summary: string;
+  recommendedAction: string;
+  rationale: string;
+  riskLevel: "low" | "medium" | "high" | "unknown";
+  confidence: number;
+  needsUserConfirmation: boolean;
 }
 
 export interface PlannedAction {

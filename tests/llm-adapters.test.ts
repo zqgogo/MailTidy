@@ -26,6 +26,14 @@ describe("pi-backed LLM adapters", () => {
         urgency: 5,
         reason: "Asks for approval by a deadline.",
         actionSuggestion: "reply",
+        suggestion: {
+          summary: "Reply today.",
+          recommendedAction: "draft_reply",
+          rationale: "The sender asks for approval by 5pm.",
+          riskLevel: "medium",
+          confidence: 0.9,
+          needsUserConfirmation: true,
+        },
         customDimensions: { project: "budget" },
       }));
     };
@@ -37,6 +45,12 @@ describe("pi-backed LLM adapters", () => {
     expect(judgment.emailId).toBe("m1");
     expect(judgment.category).toBe(Category.ACTIONABLE);
     expect(judgment.customDimensions?.project).toBe("budget");
+    expect(judgment.suggestion).toMatchObject({
+      summary: "Reply today.",
+      recommendedAction: "draft_reply",
+      riskLevel: "medium",
+      needsUserConfirmation: true,
+    });
   });
 
   it("drafts replies using Anthropic through the same narrow LLMClient interface", async () => {

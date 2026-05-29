@@ -7,7 +7,7 @@ import {
   type Provider,
   type SimpleStreamOptions,
 } from "@earendil-works/pi-ai";
-import { Category, type EmailJudgment, type EmailMessage, type StyleProfile } from "../../data/models.js";
+import { Category, type EmailJudgment, type EmailMessage, type StyleProfile, type Suggestion } from "../../data/models.js";
 import type { LLMClient, ModelProfile } from "../../llm/client.js";
 
 export type PiComplete = (
@@ -42,7 +42,8 @@ export class PiLLMClient implements LLMClient {
   async classifyEmail(message: EmailMessage, customDimensions: string[] = []): Promise<EmailJudgment> {
     const text = await this.completeText([
       "Classify this email for MailTidy.",
-      "Return only compact JSON with keys: category, confidence, urgency, reason, actionSuggestion, requiresConfirmation, customDimensions.",
+      "Return only compact JSON with keys: category, confidence, urgency, reason, actionSuggestion, suggestion, requiresConfirmation, customDimensions.",
+      "suggestion must have exactly these keys: summary, recommendedAction, rationale, riskLevel, confidence, needsUserConfirmation.",
       `Allowed categories: ${Object.values(Category).join(", ")}.`,
       customDimensions.length > 0 ? `Custom dimensions to fill: ${customDimensions.join(", ")}.` : "",
       "",
@@ -59,6 +60,14 @@ export class PiLLMClient implements LLMClient {
       urgency: numberInRange(raw.urgency, 1, 5, 2),
       reason: stringValue(raw.reason, "Model did not provide a reason."),
       actionSuggestion: stringValue(raw.actionSuggestion, "review"),
+      suggestion: suggestionValue(raw.suggestion, {
+        summary: stringValue(raw.actionSuggestion, "Review this email."),
+        recommendedAction: stringValue(raw.actionSuggestion, "review"),
+        rationale: stringValue(raw.reason, "Model did not provide a rationale."),
+        riskLevel: "unknown",
+        confidence: numberInRange(raw.confidence, 0, 1, 0.5),
+        needsUserConfirmation: Boolean(raw.requiresConfirmation),
+      }),
       requiresConfirmation: Boolean(raw.requiresConfirmation),
       customDimensions: objectValue(raw.customDimensions),
     };
@@ -146,4 +155,24 @@ function objectValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
+}
+
+function suggestionValue(value: unknown, fallback: Suggestion): Suggestion {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return fallback;
+  const raw = value as Record<string, unknown>;
+  return {
+    summary: stringValue(raw.summary, fallback.summary),
+    recommendedAction: stringValue(raw.recommendedAction, fallback.recommendedAction),
+    rationale: stringValue(raw.rationale, fallback.rationale),
+    riskLevel: riskLevelValue(raw.riskLevel, fallback.riskLevel),
+    confidence: numberInRange(raw.confidence, 0, 1, fallback.confidence),
+    needsUserConfirmation: typeof raw.needsUserConfirmation === "boolean"
+      ? raw.needsUserConfirmation
+      : fallback.needsUserConfirmation,
+  };
+}
+
+function riskLevelValue(value: unknown, fallback: Suggestion["riskLevel"]): Suggestion["riskLevel"] {
+  if (value === "low" || value === "medium" || value === "high" || value === "unknown") return value;
+  return fallback;
 }

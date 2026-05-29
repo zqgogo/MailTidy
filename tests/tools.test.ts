@@ -34,6 +34,7 @@ describe("MailTidy tool registry", () => {
     const classify = tools.find((tool) => tool.name === "classify_email");
     const judgment = await classify?.invoke({ message: (messages as EmailMessage[])[0] });
     expect((judgment as { category: string }).category).toBeTruthy();
+    expect((judgment as { suggestion?: { recommendedAction?: string } }).suggestion?.recommendedAction).toBeTruthy();
   });
 
   it("supports dry-run and confirmed mailbox writes through apply_email_action", async () => {

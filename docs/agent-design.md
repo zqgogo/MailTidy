@@ -774,6 +774,23 @@ const Category = {
 
 未识别的维度 `HeuristicLLMClient` 统一返回 `"unknown"`，避免上层拿到 `KeyError`。
 
+#### 富建议结构
+
+`EmailJudgment` 保留兼容字段 `actionSuggestion: string`，同时新增 `suggestion` 子结构用于报告和后续 UI：
+
+```typescript
+interface Suggestion {
+  summary: string;
+  recommendedAction: string;
+  rationale: string;
+  riskLevel: "low" | "medium" | "high" | "unknown";
+  confidence: number;
+  needsUserConfirmation: boolean;
+}
+```
+
+LLM adapter 会要求模型返回这 6 个字段；启发式兜底也会按分类生成同样结构。最终是否执行仍由 `DecisionPolicy` 决定。
+
 ### 4.2 记忆层
 
 [src/data/memory.ts](src/data/memory.ts) `AgentMemory`：
@@ -1090,6 +1107,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.5e 本地配置层已落地：[src/ops/config.ts](src/ops/config.ts) 读取 `.mailtidy/config.json`，支持 `llm.provider` (`heuristic` / `openai` / `anthropic`) 与 `llm.model`；CLI `--llm-provider` / `--llm-model` 仍可临时覆盖配置。`tests/config.test.ts` 覆盖默认值、文件读取、CLI override 与非法 provider。
 - Phase 1.6a 主动调查触发器已落地：[src/agent/deepThink.ts](src/agent/deepThink.ts) 会对低置信度、可疑链接域名、当前判断与 sender 偏好冲突生成结构化 `InvestigationSuggestion`；[src/agent/loop.ts](src/agent/loop.ts) 在 plan 阶段把建议写入 `AgentPlan` 和 checkpoint digest；[src/data/reports.ts](src/data/reports.ts) 在 cleanup / daily brief 报告中输出 `Suggested Investigations`。`tests/deep-think.test.ts` 覆盖三类触发。
 - Phase 1.6b 受限调查执行已接入 deterministic loop：plan 后会按建议调用最多 3 个受限工具（如 `verify_domain` / `read_original_record` / `recall_memory`），把 observation 写入 `AgentPlan.investigationResults`、checkpoint 和报告的 `Investigation Results`。pi 侧 [src/agent/piAgent.ts](src/agent/piAgent.ts) 已支持把调查建议注入 system prompt。`tests/loop.test.ts` 覆盖可疑链接 + 低置信度触发工具调用，`tests/pi-agent.test.ts` 覆盖 prompt 注入。
+- Phase 1.7 富建议结构已落地：[src/data/models.ts](src/data/models.ts) 的 `EmailJudgment` 新增 6 字段 `Suggestion` 子结构（summary / recommendedAction / rationale / riskLevel / confidence / needsUserConfirmation）；[src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 要求模型输出该结构并做容错解析，[src/integrations/llm/heuristic.ts](src/integrations/llm/heuristic.ts) 为本地兜底生成同构建议；日报报告优先展示结构化建议。`tests/llm-adapters.test.ts` / `tests/tools.test.ts` / `tests/loop.test.ts` 覆盖输出与展示。
 - 测试 46/46 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
@@ -1111,7 +1129,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.4 | ✅ 完成：4 条 SOP 均支持 `--agent` 接入 `runAgentLoop()`，默认 legacy 路径保持兼容；分级自动化默认行为和 kill/restart/continue e2e 均已覆盖 |
 | 1.5 | ✅ 基本完成：OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；CLI `--agent` 支持 `--llm-provider heuristic/openai/anthropic` + `--llm-model`，provider 失败会通过 `FallbackLLMClient` 降级到 heuristic 并 stderr 明示；trace/report 产物落盘与 history 回查目录已闭环；`ops/config.ts` 已支持 `.mailtidy/config.json` provider/model 持久配置，CLI 参数可覆盖 |
 | 1.6 | ✅ 基本完成：`deepThink.ts` 已生成低置信度 / 可疑链接 / 偏好冲突的结构化调查建议；deterministic loop 已执行受限调查工具并写入 plan / report / checkpoint；pi prompt 已支持注入调查建议。后续 Phase 1.8 再把全文读取和域名核对从 stub 后端升级为真实实现 |
-| 1.7 | 实现"建议丰富度"输出格式：给 `EmailJudgment` 增加 `Suggestion` 子结构（6 字段） |
+| 1.7 | ✅ 完成：`EmailJudgment.suggestion` 已包含 summary / recommendedAction / rationale / riskLevel / confidence / needsUserConfirmation；OpenAI / Anthropic pi adapter 和 heuristic fallback 都会产出该结构，报告展示已接入 |
 | 1.8 | 加 trace / context 单测：低置信度邮件必须触发 `readEmail`，含可疑链接的邮件必须触发域名核对；超长 thread 必须先摘要压缩 |
 
 **Phase 1 验收（必过）**：

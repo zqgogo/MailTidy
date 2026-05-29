@@ -73,7 +73,7 @@ export function dailyBrief(plan: AgentPlan, messages: EmailMessage[]): string {
     for (const j of judgments) {
       const m = byId.get(j.emailId);
       if (!m) continue;
-      lines.push(`- [${m.sender}] ${m.subject} - ${m.snippet} - ${j.actionSuggestion}`);
+      lines.push(`- [${m.sender}] ${m.subject} - ${m.snippet} - ${formatJudgmentSuggestion(j)}`);
     }
     lines.push("");
   }
@@ -128,6 +128,11 @@ export function subscriptionsCsv(rows: SubscriptionRow[]): string {
     );
   }
   return out.join("\n") + "\n";
+}
+
+function formatJudgmentSuggestion(judgment: AgentPlan["judgments"][number]): string {
+  if (!judgment.suggestion) return judgment.actionSuggestion;
+  return `${judgment.suggestion.summary} Action: ${judgment.suggestion.recommendedAction}; risk=${judgment.suggestion.riskLevel}; confidence=${judgment.suggestion.confidence.toFixed(2)}`;
 }
 
 function appendInvestigationSuggestions(lines: string[], plan: AgentPlan): void {

@@ -7,7 +7,7 @@
  */
 
 import type { LLMClient, ModelProfile } from "../../llm/client.js";
-import { Category, type EmailJudgment, type EmailMessage, type StyleProfile } from "../../data/models.js";
+import { Category, type EmailJudgment, type EmailMessage, type StyleProfile, type Suggestion } from "../../data/models.js";
 
 export class HeuristicLLMClient implements LLMClient {
   readonly profile: ModelProfile = {
@@ -64,6 +64,7 @@ export class HeuristicLLMClient implements LLMClient {
       urgency,
       reason,
       actionSuggestion: category,
+      suggestion: suggestionFor(category, confidence, reason),
       customDimensions: this.customDimensions(message, category, customDimensions),
     };
   }
@@ -112,4 +113,41 @@ export class HeuristicLLMClient implements LLMClient {
     }
     return out;
   }
+}
+
+function suggestionFor(category: Category, confidence: number, reason: string): Suggestion {
+  const action = actionForCategory(category);
+  const riskLevel = riskForCategory(category);
+  return {
+    summary: action.summary,
+    recommendedAction: action.recommendedAction,
+    rationale: reason,
+    riskLevel,
+    confidence,
+    needsUserConfirmation: riskLevel !== "low",
+  };
+}
+
+function actionForCategory(category: Category): { summary: string; recommendedAction: string } {
+  switch (category) {
+    case Category.PROMOTION:
+    case Category.SPAM:
+      return { summary: "Likely safe to clear from the inbox.", recommendedAction: "archive" };
+    case Category.NEWSLETTER:
+      return { summary: "Organize as subscribed reading.", recommendedAction: "label:Newsletters" };
+    case Category.TRANSACTIONAL:
+      return { summary: "Keep as receipt or billing evidence.", recommendedAction: "label:Receipts" };
+    case Category.ACTIONABLE:
+      return { summary: "Needs user attention or reply.", recommendedAction: "star" };
+    case Category.IMPORTANT:
+      return { summary: "Important enough to keep visible.", recommendedAction: "star" };
+    case Category.NOTIFICATION:
+      return { summary: "Review before marking as handled.", recommendedAction: "review" };
+  }
+}
+
+function riskForCategory(category: Category): Suggestion["riskLevel"] {
+  if (category === Category.PROMOTION || category === Category.SPAM) return "high";
+  if (category === Category.NOTIFICATION) return "medium";
+  return "low";
 }

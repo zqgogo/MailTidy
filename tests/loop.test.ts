@@ -174,6 +174,8 @@ describe("runAgentLoop", () => {
 
       expect(result.exit.reason).toBe("completed");
       expect(result.report).toContain("# MailTidy Daily Brief");
+      expect(result.report).toContain("risk=");
+      expect(result.report).toContain("confidence=");
 
       const task = await runtime.tasks.load(result.taskId);
       expect(task?.sop).toBe("daily_brief");

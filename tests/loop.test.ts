@@ -163,7 +163,7 @@ describe("runAgentLoop", () => {
       ]);
       expect(result.report).toContain("## Suggested Investigations");
       expect(result.report).toContain("## Investigation Results");
-      expect(result.report).toContain("verify_domain backend not yet implemented");
+      expect(result.report).toContain("example-login-security.test risk=high");
     });
   });
 

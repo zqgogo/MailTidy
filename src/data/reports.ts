@@ -153,10 +153,11 @@ function summarizeInvestigationObservation(observation: unknown): string {
   if (typeof observation === "string") return observation;
   if (typeof observation !== "object" || observation === null) return String(observation);
   const value = observation as { note?: unknown; domain?: unknown; riskLevel?: unknown; content?: unknown };
-  if (typeof value.note === "string") return value.note;
   if (typeof value.domain === "string" && typeof value.riskLevel === "string") {
-    return `${value.domain} risk=${value.riskLevel}`;
+    const suffix = typeof value.note === "string" ? ` (${value.note})` : "";
+    return `${value.domain} risk=${value.riskLevel}${suffix}`;
   }
+  if (typeof value.note === "string") return value.note;
   if (typeof value.content === "string") return value.content.slice(0, 120);
   return JSON.stringify(observation).slice(0, 160);
 }

@@ -13,11 +13,16 @@
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
+import type { AgentMemory } from "../data/memory.js";
+import type { EmailMessage } from "../data/models.js";
+import type { EmailConnector } from "../integrations/email/base.js";
 import type { AnyToolDefinition } from "./base.js";
 
 export interface HistoryToolOptions {
   /** 默认 .mailtidy；CLI 启动时传入实际 state 目录。 */
   stateDir?: string;
+  connector?: EmailConnector;
+  memory?: AgentMemory;
 }
 
 export interface ReadTraceSliceArgs {
@@ -130,13 +135,41 @@ export function createHistoryTools(options: HistoryToolOptions = {}): AnyToolDef
       risk: "low",
       rateLimit: { perTask: 3 },
       async invoke(args: ReadOriginalRecordArgs): Promise<{ content: string | null; note?: string }> {
-        // Phase 1.8 之前没有持久化原始记录；先返回结构化提示。
         const cap = Math.min(args.maxChars ?? MAX_CHARS, MAX_CHARS);
-        return {
-          content: null,
-          note: `read_original_record backend not yet implemented (Phase 1.8). Requested kind=${args.kind} id=${args.id} maxChars=${cap}`,
-        };
+        if (args.kind === "email") {
+          if (!options.connector) return { content: null, note: "email connector not available for original record lookup" };
+          const message = await options.connector.readById(args.id);
+          if (!message) return { content: null, note: `email not found: ${args.id}` };
+          return { content: formatEmailRecord(message).slice(0, cap) };
+        }
+
+        if (!options.memory) return { content: null, note: "memory store not available for original record lookup" };
+        const value = readMemoryEntry(options.memory, args.id);
+        if (value === undefined) return { content: null, note: `memory entry not found: ${args.id}` };
+        return { content: JSON.stringify(value, null, 2).slice(0, cap) };
       },
     },
   ];
+}
+
+function formatEmailRecord(message: EmailMessage): string {
+  return [
+    `id: ${message.id}`,
+    `sender: ${message.sender}`,
+    `subject: ${message.subject}`,
+    `date: ${message.date}`,
+    `snippet: ${message.snippet}`,
+    "",
+    message.body ?? message.snippet,
+  ].join("\n");
+}
+
+function readMemoryEntry(memory: AgentMemory, id: string): unknown {
+  const [scope, ...rest] = id.split(":");
+  const key = rest.join(":");
+  if (scope === "sender") return memory.senderPreferences[key.toLowerCase()];
+  if (scope === "action") return memory.actionPreferences[key];
+  if (scope === "style") return memory.styleProfile;
+  if (scope === "subscription" && key) return memory.subscriptionHistory[Number(key)];
+  return undefined;
 }

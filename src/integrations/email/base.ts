@@ -24,6 +24,7 @@ export interface FetchRecentOptions {
 export interface EmailConnector {
   fetchRecent(options?: FetchRecentOptions): Promise<EmailMessage[]>;
   search(query: string, months?: number): Promise<EmailMessage[]>;
+  readById(emailId: string): Promise<EmailMessage | null>;
   archive(emailIds: string[]): Promise<void>;
   label(emailIds: string[], label: string): Promise<void>;
   star(emailIds: string[]): Promise<void>;

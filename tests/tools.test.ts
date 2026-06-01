@@ -108,7 +108,7 @@ describe("MailTidy tool registry", () => {
     expect((updated as { preferredAction: string }).preferredAction).toBe("star");
   });
 
-  it("returns Phase-3 stubs for rules / research / history without crashing", async () => {
+  it("keeps rules/web-search bounded and supports local history/research checks", async () => {
     const tools = createMailTidyTools({
       connector: new MockEmailConnector(),
       llm: new HeuristicLLMClient(),
@@ -138,5 +138,25 @@ describe("MailTidy tool registry", () => {
     };
     expect(reportResult.content).toBeNull();
     expect(reportResult.note).toContain("not found");
+
+    const readOriginal = tools.find((tool) => tool.name === "read_original_record");
+    const original = (await readOriginal?.invoke({ kind: "email", id: "m5", maxChars: 500 })) as {
+      content: string | null;
+      note?: string;
+    };
+    expect(original.content).toContain("subject: Your Notion receipt");
+    expect(original.content).toContain("Amount: $10.00");
+
+    const verifyDomain = tools.find((tool) => tool.name === "verify_domain");
+    const domainResult = (await verifyDomain?.invoke({ domain: "https://example-login-security.test/verify" })) as {
+      domain: string;
+      riskLevel: string;
+      reasons: string[];
+      note?: string;
+    };
+    expect(domainResult.domain).toBe("example-login-security.test");
+    expect(domainResult.riskLevel).toBe("high");
+    expect(domainResult.reasons.length).toBeGreaterThanOrEqual(2);
+    expect(domainResult.note).toContain("Offline heuristic");
   });
 });

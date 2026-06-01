@@ -81,14 +81,16 @@ LLM clients from `.mailtidy/config.json` or CLI overrides with fallback, and
 agent runs now write report and trace artifacts under `.mailtidy/{reports,traces}`
 for bounded history lookup. The first proactive investigation triggers now flag
 low-confidence, suspicious-link, and preference-conflict cases in plans and
-reports, and the deterministic loop runs the bounded investigation tools before
-reporting the observations. Judgments now include structured rich suggestions
-with action, rationale, risk, confidence, and confirmation fields. See
+reports, and the deterministic loop runs bounded investigation tools before
+reporting observations. Judgments now include structured rich suggestions, and
+Phase 1.8 has begun by replacing original-email and domain-check stubs with
+bounded local implementations. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: replace investigation stubs with real bounded original-record/domain
-  checks, then add trace/context regression cases for Phase 1 acceptance.
+- Phase 1: add trace/context regression cases for Phase 1 acceptance, including
+  low-confidence original reads, suspicious-link domain checks, and long-thread
+  summary compression.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

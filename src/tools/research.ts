@@ -72,13 +72,43 @@ export function createResearchTools(): AnyToolDefinition[] {
       risk: "medium",
       rateLimit: { perTask: 5 },
       async invoke(args: VerifyDomainArgs): Promise<DomainVerificationResult> {
+        const domain = normalizeDomain(args.domain);
+        const reasons: string[] = [];
+        const labels = domain.split(".");
+        const tld = labels.at(-1) ?? "";
+        const sld = labels.at(-2) ?? labels[0] ?? domain;
+        const suspiciousWords = ["login", "verify", "security", "account", "password", "billing", "support", "wallet"];
+        const trustedDomains = new Set(["github.com", "google.com", "microsoft.com", "apple.com", "notion.so", "netflix.com"]);
+
+        if (trustedDomains.has(domain)) reasons.push("Domain is in the built-in trusted demo allowlist.");
+        if (["test", "invalid", "example"].includes(tld)) reasons.push(`Reserved or non-production TLD: .${tld}.`);
+        if (suspiciousWords.some((word) => sld.includes(word))) reasons.push("Domain label contains account-security bait words.");
+        if (sld.includes("-")) reasons.push("Domain label uses hyphenated brand/login style.");
+        if (/\d/.test(sld)) reasons.push("Domain label contains digits, a common lookalike signal.");
+
+        const riskLevel = trustedDomains.has(domain)
+          ? "low"
+          : reasons.length >= 2
+            ? "high"
+            : reasons.length === 1
+              ? "medium"
+              : "unknown";
         return {
-          domain: args.domain,
-          riskLevel: "unknown",
-          reasons: [],
-          note: "verify_domain backend not yet implemented (Phase 3).",
+          domain,
+          riskLevel,
+          reasons,
+          note: "Offline heuristic check only; no live reputation lookup was performed.",
         };
       },
     },
   ];
+}
+
+function normalizeDomain(raw: string): string {
+  const withProtocol = raw.includes("://") ? raw : `https://${raw}`;
+  try {
+    return new URL(withProtocol).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return raw.toLowerCase().replace(/^www\./, "");
+  }
 }

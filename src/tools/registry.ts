@@ -39,7 +39,7 @@ export function createMailTidyTools(deps: ToolRegistryDeps): AnyToolDefinition[]
     ...createEmailTools(deps.connector),
     ...createClassificationTools(deps.llm),
     ...createRulesTools(),
-    ...createHistoryTools({ stateDir: deps.stateDir ?? ".mailtidy" }),
+    ...createHistoryTools({ stateDir: deps.stateDir ?? ".mailtidy", connector: deps.connector, memory: deps.memory }),
     ...createActionTools(deps.connector),
     ...createResearchTools(),
   ];

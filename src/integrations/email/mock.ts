@@ -89,6 +89,10 @@ export class MockEmailConnector implements EmailConnector {
     });
   }
 
+  async readById(emailId: string): Promise<EmailMessage | null> {
+    return this.messages.find((message) => message.id === emailId) ?? null;
+  }
+
   async archive(emailIds: string[]): Promise<void> {
     this.operations.push(`archive:${emailIds.join(",")}`);
   }

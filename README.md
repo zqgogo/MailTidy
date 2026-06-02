@@ -95,7 +95,10 @@ that scans for security risks, automation opportunities, and learning proposals.
 Phase 2.5 has started with the "less is more" constraint (`RejectedProposalStore`)
 that prevents rejected suggestions from reappearing for 30 days.
 Phase 2.6 has started with preference metadata (`learnedFrom`/`learnedAt`) and
-memory rollback commands (`mailtidy memory list/history/rollback/show`). See
+memory rollback commands (`mailtidy memory list/history/rollback/show`).
+Phase 2.7 has started with learning safety boundaries: single feedback impact
+capped at ±2, dangerous preferences (delete, etc.) require user confirmation.
+Phase 2.8 has started with pending queue for delayed execution and retry mechanism. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

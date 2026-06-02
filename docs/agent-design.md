@@ -1157,8 +1157,8 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 2.4 | ✅ 已开始：[src/data/proactive-channel.ts](src/data/proactive-channel.ts) 实现 `ProactiveChannel`，扫描四类场景按重要性排序，最多浮出 3 条建议，支持 `--quiet` 模式 |
 | 2.5 | ✅ 已开始：[src/data/rejected-proposals.ts](src/data/rejected-proposals.ts) 实现拒绝建议存储，拒绝的建议 30 天内不再浮出；`--quiet` 模式已在主动告知通道实现 |
 | 2.6 | ✅ 已开始：[src/data/memory.ts](src/data/memory.ts) 偏好加 `learnedFrom`/`learnedAt` 元数据；支持 `mailtidy memory list/history/rollback/show` 命令一键回滚 |
-| 2.7 | 学习安全边界测试：单次反馈影响有上限；危险偏好必须 raise 而不是写入 |
-| 2.8 | pending 队列 + 重操作执行机制 |
+| 2.7 | ✅ 已开始：[src/data/learning.ts](src/data/learning.ts) 实现学习安全边界，单次反馈影响有上限（默认 ±2）；危险偏好（delete 等）标记为 requiresConfirmation，必须确认才能应用 |
+| 2.8 | ✅ 已开始：[src/data/pending-queue.ts](src/data/pending-queue.ts) 实现 pending 队列，支持任务排队、延迟执行、重试机制（指数退避）、持久化存储 |
 
 **Phase 2 验收**：
 

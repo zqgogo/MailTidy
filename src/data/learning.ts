@@ -31,6 +31,7 @@ export interface PreferenceUpdate {
   learnedAt: string;
   reason: string;
   isDangerous?: boolean;
+  requiresConfirmation?: boolean;
 }
 
 export interface LearningResult {
@@ -159,9 +160,14 @@ export class LearningEngine {
 
   /**
    * 应用更新到内存，返回是否成功。
+   * 危险偏好（requiresConfirmation=true）必须先确认才能应用。
    */
-  applyUpdate(update: PreferenceUpdate, memory: AgentMemory): boolean {
+  applyUpdate(update: PreferenceUpdate, memory: AgentMemory, force: boolean = false): boolean {
     if (update.isDangerous) {
+      return false;
+    }
+
+    if (update.requiresConfirmation && !force) {
       return false;
     }
 
@@ -178,6 +184,13 @@ export class LearningEngine {
     }
 
     return true;
+  }
+
+  /**
+   * 检查更新是否需要用户确认（危险偏好）。
+   */
+  requiresUserConfirmation(update: PreferenceUpdate): boolean {
+    return update.isDangerous || update.requiresConfirmation || false;
   }
 
   private handleConfirmation(signal: LearningSignal, memory: AgentMemory): PreferenceUpdate[] {
@@ -274,6 +287,7 @@ export class LearningEngine {
     
     if (hasDangerous) {
       update.isDangerous = true;
+      update.requiresConfirmation = true;
       return false;
     }
 
@@ -282,6 +296,13 @@ export class LearningEngine {
     }
 
     return true;
+  }
+
+  /**
+   * 计算重要性变化的安全边界，确保单次反馈影响有上限。
+   */
+  private clampImpact(delta: number): number {
+    return Math.max(-this.options.maxImpactPerSignal, Math.min(this.options.maxImpactPerSignal, delta));
   }
 
   private groupBySender(logs: LearningSignal[]): Map<string, LearningSignal[]> {

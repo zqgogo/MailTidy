@@ -1,17 +1,20 @@
 /**
  * 主动告知通道：每次任务结束扫描场景，最多浮出 3 条按重要性排序的建议。
  *
- * Phase 2.4 实现：
- *   - 扫描 §2.8 场景（高风险域名、频繁发件人、学习提议等）
+ * Phase 2.4 + 2.5 实现：
+ *   - 扫描四类场景（安全风险、自动化机会、学习提议、记忆提醒）
  *   - 按重要性排序（安全 > 自动化 > 学习）
  *   - 最多浮出 3 条建议
  *   - 支持 --quiet 模式只在高风险时提醒
+ *   - "少即是多"约束：拒绝过的建议 30 天内不再重复浮出
  */
 
 import type { AgentMemory } from "./memory.js";
 import type { DecisionLogStore } from "./decision-logs.js";
 import type { LearningProposer, LearningProposal } from "./learning-proposer.js";
 import { createLearningProposer } from "./learning-proposer.js";
+import type { RejectedProposalStore } from "./rejected-proposals.js";
+import { createRejectedProposalStore } from "./rejected-proposals.js";
 
 export interface ProactiveNotification {
   id: string;
@@ -28,6 +31,7 @@ export interface ProactiveNotification {
 export interface NotificationResult {
   notifications: ProactiveNotification[];
   filteredCount: number;
+  rejectedCount: number;
   notes: string[];
 }
 
@@ -46,14 +50,17 @@ const DEFAULT_OPTIONS: Required<ProactiveChannelOptions> = {
 export class ProactiveChannel {
   private readonly options: Required<ProactiveChannelOptions>;
   private readonly learningProposer: LearningProposer;
+  private readonly rejectedStore: RejectedProposalStore;
 
   constructor(
     private readonly decisionLogs: DecisionLogStore,
     options: ProactiveChannelOptions = {},
     learningProposer?: LearningProposer,
+    rejectedStore?: RejectedProposalStore,
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
     this.learningProposer = learningProposer ?? createLearningProposer(decisionLogs);
+    this.rejectedStore = rejectedStore ?? createRejectedProposalStore();
   }
 
   async scanAndNotify(memory: AgentMemory): Promise<NotificationResult> {
@@ -80,15 +87,22 @@ export class ProactiveChannel {
 
     allNotifications.sort((a, b) => b.importance - a.importance);
 
-    const filteredNotifications = this.options.quietMode
-      ? allNotifications.filter((n) => n.severity === "high")
-      : allNotifications.slice(0, this.options.maxNotifications);
+    const filteredByRejection = await this.filterRejected(allNotifications);
+    const rejectedCount = allNotifications.length - filteredByRejection.length;
+    notes.push(`Filtered ${rejectedCount} previously rejected notifications`);
 
-    const filteredCount = allNotifications.length - filteredNotifications.length;
+    const filteredNotifications = this.options.quietMode
+      ? filteredByRejection.filter((n) => n.severity === "high")
+      : filteredByRejection.slice(0, this.options.maxNotifications);
+
+    const filteredCount = filteredByRejection.length - filteredNotifications.length;
+
+    await this.rejectedStore.cleanup();
 
     return {
       notifications: filteredNotifications,
       filteredCount,
+      rejectedCount,
       notes,
     };
   }
@@ -119,10 +133,41 @@ export class ProactiveChannel {
     }
 
     if (result.filteredCount > 0) {
-      lines.push(`\n还有 ${result.filteredCount} 条建议被过滤（使用 --quiet 模式）`);
+      lines.push(`\n还有 ${result.filteredCount} 条建议被过滤`);
+    }
+
+    if (result.rejectedCount > 0) {
+      lines.push(`\n${result.rejectedCount} 条建议因之前被拒绝而跳过（30天内不再显示）`);
     }
 
     return lines.join("\n");
+  }
+
+  async rejectNotification(notification: ProactiveNotification): Promise<string> {
+    return this.rejectedStore.add({
+      notificationId: notification.id,
+      sender: notification.sender,
+      suggestedAction: notification.suggestedAction,
+      rejectedAt: new Date().toISOString(),
+    });
+  }
+
+  private async filterRejected(notifications: ProactiveNotification[]): Promise<ProactiveNotification[]> {
+    const filtered: ProactiveNotification[] = [];
+
+    for (const notification of notifications) {
+      const isRejected = await this.rejectedStore.isRejected(notification.id);
+      if (!isRejected && notification.sender) {
+        const isSenderRejected = await this.rejectedStore.isRejectedBySender(notification.sender);
+        if (!isSenderRejected) {
+          filtered.push(notification);
+        }
+      } else if (!isRejected) {
+        filtered.push(notification);
+      }
+    }
+
+    return filtered;
   }
 
   private async checkLearningProposals(memory: AgentMemory): Promise<ProactiveNotification[]> {
@@ -144,15 +189,18 @@ export class ProactiveChannel {
     }
 
     for (const sender of suspiciousSenders) {
-      notifications.push({
-        id: `security_${sender}_${Date.now()}`,
-        type: "security_warning",
-        severity: "high",
-        title: "可疑发件人",
-        message: `检测到来自「${sender}」的可疑活动，请谨慎处理其邮件`,
-        sender,
-        importance: 100,
-      });
+      const isRejected = await this.rejectedStore.isRejectedBySender(sender);
+      if (!isRejected) {
+        notifications.push({
+          id: `security_${sender}_${Date.now()}`,
+          type: "security_warning",
+          severity: "high",
+          title: "可疑发件人",
+          message: `检测到来自「${sender}」的可疑活动，请谨慎处理其邮件`,
+          sender,
+          importance: 100,
+        });
+      }
     }
 
     return notifications;
@@ -176,16 +224,19 @@ export class ProactiveChannel {
         if (count >= 3) {
           const existingPref = memory.senderPreferences[sender.toLowerCase()];
           if (!existingPref || existingPref.preferredAction !== action) {
-            notifications.push({
-              id: `automation_${sender}_${action}_${Date.now()}`,
-              type: "automation_suggestion",
-              severity: "medium",
-              title: "自动化建议",
-              message: `「${sender}」的邮件已执行「${action}」操作 ${count} 次，是否设置为自动处理？`,
-              sender,
-              suggestedAction: action,
-              importance: 50 + count,
-            });
+            const isRejected = await this.rejectedStore.isRejectedBySender(sender);
+            if (!isRejected) {
+              notifications.push({
+                id: `automation_${sender}_${action}_${Date.now()}`,
+                type: "automation_suggestion",
+                severity: "medium",
+                title: "自动化建议",
+                message: `「${sender}」的邮件已执行「${action}」操作 ${count} 次，是否设置为自动处理？`,
+                sender,
+                suggestedAction: action,
+                importance: 50 + count,
+              });
+            }
           }
         }
       }

@@ -89,7 +89,9 @@ with the learning layer (`LearningEngine`) that processes user feedback signals
 and proposes preferences from decision patterns. Phase 2.2 has started with
 decision log persistence (`DecisionLogStore`) and automatic signal recording
 in the agent loop. Phase 2.3 has started with the asynchronous learning proposer
-(`LearningProposer`) that scans decision logs and generates opening prompts. See
+(`LearningProposer`) that scans decision logs and generates opening prompts.
+Phase 2.4 has started with the proactive notification channel (`ProactiveChannel`)
+that scans for security risks, automation opportunities, and learning proposals. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

@@ -1112,12 +1112,13 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 2.1 学习层已开始落地：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持处理 `user_confirmation` / `user_rejection` / `user_correction` / `action_executed` / `action_skipped` 五类学习信号，输出结构化 `PreferenceUpdate`；实现 `proposePreferencesFromLogs()` 异步学习提议器，扫描近 N 天决策日志生成自动化偏好建议；内置学习安全边界（危险关键词过滤、单次反馈影响上限、低置信度过滤）。`tests/learning.test.ts` 覆盖 10 个学习场景。
 - Phase 2.2 同步学习信号已落地：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore`，以 JSONL 格式持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号；`AgentLoopDeps` 新增 `decisionLogs` 和 `learningEngine` 可选依赖。`tests/decision-logs.test.ts` 覆盖 10 个日志存储场景。
 - Phase 2.3 异步学习提议器已落地：[src/data/learning-proposer.ts](src/data/learning-proposer.ts) 实现 `LearningProposer`，扫描近 N 天决策日志识别可自动化模式；支持生成候选偏好提议、获取开场提问文本、应用提议到内存；默认阈值为连续 3 次确认后自动提议。`tests/learning-proposer.test.ts` 覆盖 10 个提议场景。
-- 测试 89/89 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 2.4 主动告知通道已落地：[src/data/proactive-channel.ts](src/data/proactive-channel.ts) 实现 `ProactiveChannel`，扫描安全风险、自动化机会、学习提议、记忆提醒四类场景；按重要性排序（安全 > 自动化 > 学习）；最多浮出 3 条建议；支持 `--quiet` 模式只在高风险时提醒。`tests/proactive-channel.test.ts` 覆盖 10 个告知场景。
+- 测试 99/99 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
 - askUser 回调挂学习钩子（用户确认/拒绝/纠正）
-- 主动告知通道、pending 队列、偏好回滚
+- pending 队列、偏好回滚
 - 自定义规则引擎、研究型分析、真实邮箱、Web UI
 
 ### 5.3 路线图（Phase 1-5）
@@ -1153,7 +1154,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 2.1 | ✅ 已开始：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持五类学习信号处理、异步学习提议器、学习安全边界 |
 | 2.2 | ✅ 已开始：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore` 持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号 |
 | 2.3 | ✅ 已开始：[src/data/learning-proposer.ts](src/data/learning-proposer.ts) 实现 `LearningProposer`，扫描近 N 天决策日志生成候选偏好，支持开场提问和应用提议 |
-| 2.4 | 主动告知通道：每次任务结束扫描 §2.8 场景，最多浮 3 条按重要性排序的建议 |
+| 2.4 | ✅ 已开始：[src/data/proactive-channel.ts](src/data/proactive-channel.ts) 实现 `ProactiveChannel`，扫描四类场景按重要性排序，最多浮出 3 条建议，支持 `--quiet` 模式 |
 | 2.5 | "少即是多"约束：拒绝过的建议 30 天内不重复浮出；`--quiet` 只在高风险时提醒 |
 | 2.6 | 偏好加 `learnedFrom` / `learnedAt` 元数据；`mailtidy memory rollback <id>` 一键回滚 |
 | 2.7 | 学习安全边界测试：单次反馈影响有上限；危险偏好必须 raise 而不是写入 |

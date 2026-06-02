@@ -83,8 +83,8 @@ for bounded history lookup. The first proactive investigation triggers now flag
 low-confidence, suspicious-link, and preference-conflict cases in plans and
 reports, and the deterministic loop runs bounded investigation tools before
 reporting observations. Judgments now include structured rich suggestions, and
-Phase 1.8 has begun by replacing original-email and domain-check stubs with
-bounded local implementations. See
+Phase 1.8 is complete with bounded original record reading, offline domain verification,
+and context compression (fact/inference/source separation). See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

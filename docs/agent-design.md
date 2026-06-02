@@ -1108,7 +1108,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.6a 主动调查触发器已落地：[src/agent/deepThink.ts](src/agent/deepThink.ts) 会对低置信度、可疑链接域名、当前判断与 sender 偏好冲突生成结构化 `InvestigationSuggestion`；[src/agent/loop.ts](src/agent/loop.ts) 在 plan 阶段把建议写入 `AgentPlan` 和 checkpoint digest；[src/data/reports.ts](src/data/reports.ts) 在 cleanup / daily brief 报告中输出 `Suggested Investigations`。`tests/deep-think.test.ts` 覆盖三类触发。
 - Phase 1.6b 受限调查执行已接入 deterministic loop：plan 后会按建议调用最多 3 个受限工具（如 `verify_domain` / `read_original_record` / `recall_memory`），把 observation 写入 `AgentPlan.investigationResults`、checkpoint 和报告的 `Investigation Results`。pi 侧 [src/agent/piAgent.ts](src/agent/piAgent.ts) 已支持把调查建议注入 system prompt。`tests/loop.test.ts` 覆盖可疑链接 + 低置信度触发工具调用，`tests/pi-agent.test.ts` 覆盖 prompt 注入。
 - Phase 1.7 富建议结构已落地：[src/data/models.ts](src/data/models.ts) 的 `EmailJudgment` 新增 6 字段 `Suggestion` 子结构（summary / recommendedAction / rationale / riskLevel / confidence / needsUserConfirmation）；[src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 要求模型输出该结构并做容错解析，[src/integrations/llm/heuristic.ts](src/integrations/llm/heuristic.ts) 为本地兜底生成同构建议；日报报告优先展示结构化建议。`tests/llm-adapters.test.ts` / `tests/tools.test.ts` / `tests/loop.test.ts` 覆盖输出与展示。
-- Phase 1.8a 受限回查后端已开始落地：`EmailConnector.readById()` 和 [src/tools/history.ts](src/tools/history.ts) 的 `read_original_record` 可按 ID 读取最多 6000 字符的原始邮件 / 记忆条目；[src/tools/research.ts](src/tools/research.ts) 的 `verify_domain` 已从 stub 升级为离线启发式域名风险核对，并在报告中展示 `domain risk=<level>`。`tests/tools.test.ts` / `tests/loop.test.ts` 覆盖原文读取与可疑链接域名核对。
+- Phase 1.8 受限回查与上下文压缩已完成：`EmailConnector.readById()` 和 `read_original_record` 工具可按 ID 读取最多 6000 字符的原始邮件 / 记忆条目；`verify_domain` 已升级为离线启发式域名风险核对（识别 .test TLD、安全/登录诱导词、连字符、数字等风险信号）；[src/agent/compression.ts](src/agent/compression.ts) 实现了上下文压缩（事实/推断/来源分离、持续压缩、阶段摘要）；[src/agent/context.ts](src/agent/context.ts) 的 `WorkingContextManager` 支持完整的证据引用索引管理。`tests/tools.test.ts` / `tests/loop.test.ts` / `tests/compression.test.ts` 覆盖原文读取、可疑链接域名核对、上下文压缩与证据引用。
 - 测试 46/46 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
@@ -1131,7 +1131,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 1.5 | ✅ 基本完成：OpenAI / Anthropic `LLMClient` adapter 已接 `@earendil-works/pi-ai`；CLI `--agent` 支持 `--llm-provider heuristic/openai/anthropic` + `--llm-model`，provider 失败会通过 `FallbackLLMClient` 降级到 heuristic 并 stderr 明示；trace/report 产物落盘与 history 回查目录已闭环；`ops/config.ts` 已支持 `.mailtidy/config.json` provider/model 持久配置，CLI 参数可覆盖 |
 | 1.6 | ✅ 基本完成：`deepThink.ts` 已生成低置信度 / 可疑链接 / 偏好冲突的结构化调查建议；deterministic loop 已执行受限调查工具并写入 plan / report / checkpoint；pi prompt 已支持注入调查建议。后续 Phase 1.8 再把全文读取和域名核对从 stub 后端升级为真实实现 |
 | 1.7 | ✅ 完成：`EmailJudgment.suggestion` 已包含 summary / recommendedAction / rationale / riskLevel / confidence / needsUserConfirmation；OpenAI / Anthropic pi adapter 和 heuristic fallback 都会产出该结构，报告展示已接入 |
-| 1.8 | 进行中：低置信度邮件已触发受限 `read_original_record` 且可按 ID 读原文；含可疑链接的邮件已触发离线 `verify_domain` 域名核对；下一步补 trace/context 回归断言与超长 thread 摘要压缩 |
+| 1.8 | ✅ 完成：低置信度邮件触发受限 `read_original_record`（最多 6000 字符）；可疑链接邮件触发离线 `verify_domain` 域名核对；[src/agent/compression.ts](src/agent/compression.ts) 实现上下文压缩（事实/推断/来源分离、持续压缩、阶段摘要）；[src/agent/context.ts](src/agent/context.ts) 实现 `WorkingContextManager` 管理证据引用索引；`tests/compression.test.ts` 覆盖回归断言 |
 
 **Phase 1 验收（必过）**：
 

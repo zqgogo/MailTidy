@@ -100,7 +100,9 @@ Phase 2.7 has started with learning safety boundaries: single feedback impact
 capped at ±2, dangerous preferences (delete, etc.) require user confirmation.
 Phase 2.8 has started with pending queue for delayed execution and retry mechanism.
 Phase 3.1 has started with the rules engine: rule model, JSONL persistence, matching engine,
-and conflict resolution by priority. See
+and conflict resolution by priority.
+Phase 3.2 has completed: rules engine integrated into `match_rules` tool and `policies.ts` for
+decision-making integration. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

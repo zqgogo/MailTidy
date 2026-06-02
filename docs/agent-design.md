@@ -1172,8 +1172,8 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 
 | # | 工作项 |
 | --- | --- |
-| 3.1 | ✅ 已开始：[src/rules/rules.ts](src/rules/rules.ts) 实现规则模型、规则存储（JSONL）、匹配引擎（AND逻辑）、冲突处理（优先级） |
-| 3.2 | 规则引擎做成 `matchRules` 工具供主循环调用；冲突处理写在 `policies.ts` |
+| 3.1 | ✅ 已完成：[src/rules/rules.ts](src/rules/rules.ts) 实现规则模型、规则存储（JSONL）、匹配引擎（AND逻辑）、冲突处理（优先级） |
+| 3.2 | ✅ 已完成：[src/tools/rules.ts](src/tools/rules.ts) 实现 match_rules 工具；[src/agent/policies.ts](src/agent/policies.ts) 集成自定义规则引擎 |
 | 3.3 | [src/research/](src/research/)：研究计划与邮件动作分离；`webSearch` 工具；风险评级 |
 | 3.4 | 研究反馈接入学习层：`trustedSources` 加权 |
 | 3.5 | 防钓鱼专项 case：FTX 类邮件、伪造域名、伪造账户验证，写成回归测试 |

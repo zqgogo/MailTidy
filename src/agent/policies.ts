@@ -7,15 +7,16 @@
  *
  * 思路：
  *   1. applyMemory：把用户长期偏好叠加到本次判断上（老板永远重要）。
- *   2. buildPlan：按 (action, label, 是否需要确认) 三元组聚合，得到批量动作。
- *   3. actionFor：单封邮件 → 单个动作的核心规则表。
+ *   2. applyCustomRules：应用用户自定义规则（Phase 3.2）。
+ *   3. buildPlan：按 (action, label, 是否需要确认) 三元组聚合，得到批量动作。
+ *   4. actionFor：单封邮件 → 单个动作的核心规则表。
  *
- * 后续如果要拆出"自定义规则引擎"（见 src/rules/），应在 applyMemory 之后、
- * buildPlan 之前插入 `CustomRuleEngine.apply`，避免污染本文件。
+ * Phase 3.2 集成：自定义规则引擎在 applyMemory 之后、buildPlan 之前插入。
  */
 
-import { ActionRisk, ActionType, type AgentPlan, Category, type EmailJudgment, type PlannedAction } from "../data/models.js";
+import { ActionRisk, ActionType, type AgentPlan, Category, type EmailJudgment, type PlannedAction, type EmailMessage } from "../data/models.js";
 import { type AgentMemory, preferenceFor } from "../data/memory.js";
+import { createRuleEngine } from "../rules/rules.js";
 
 export interface DecisionPolicyOptions {
   archiveThreshold?: number;
@@ -46,6 +47,66 @@ export class DecisionPolicy {
     }
     judgment.urgency = Math.max(1, Math.min(5, judgment.urgency + preference.importanceDelta));
     return judgment;
+  }
+
+  async applyCustomRules(
+    judgment: EmailJudgment,
+    message: EmailMessage,
+    ruleEngine?: ReturnType<typeof createRuleEngine>,
+  ): Promise<{ judgment: EmailJudgment; ruleApplied?: string }> {
+    if (!ruleEngine) {
+      return { judgment };
+    }
+
+    try {
+      const results = await ruleEngine.match(message);
+
+      if (results.length === 0) {
+        return { judgment };
+      }
+
+      const conflict = await ruleEngine.resolveConflicts(results);
+      const winning = conflict.winningRule;
+
+      if (winning && winning.actions.length > 0) {
+        const actionMap: Record<string, ActionType> = {
+          archive: ActionType.ARCHIVE,
+          delete: ActionType.REPORT_ONLY,
+          mark_read: ActionType.MARK_READ,
+          mark_unread: ActionType.KEEP_UNREAD,
+          star: ActionType.STAR,
+          label: ActionType.LABEL,
+          flag_as_spam: ActionType.REPORT_ONLY,
+          ask_user: ActionType.REPORT_ONLY,
+        };
+
+        const winningAction = winning.actions[0];
+        if (!winningAction) {
+          return { judgment };
+        }
+
+        const mappedAction = actionMap[winningAction.type];
+        if (mappedAction) {
+          judgment.actionSuggestion = mappedAction;
+          const actionType = winningAction.type;
+          if (actionType === "label" && winningAction.params?.label) {
+            judgment.suggestion = {
+              summary: `Custom rule "${winning.name}" matched`,
+              recommendedAction: mappedAction,
+              rationale: winning.description ?? `Applied by custom rule: ${winning.name}`,
+              riskLevel: "low" as const,
+              confidence: 1.0,
+              needsUserConfirmation: false,
+            };
+          }
+          return { judgment, ruleApplied: winning.name };
+        }
+      }
+    } catch {
+      // Silently ignore rules engine errors to maintain fallback behavior
+    }
+
+    return { judgment };
   }
 
   buildPlan(intent: string, judgments: EmailJudgment[], memory?: AgentMemory): AgentPlan {

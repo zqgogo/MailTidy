@@ -119,7 +119,7 @@ describe("MailTidy tool registry", () => {
       message: { id: "m1", sender: "a@b", subject: "x", snippet: "y", date: new Date().toISOString() },
     })) as { matched: unknown[]; note?: string };
     expect(ruleResult.matched).toEqual([]);
-    expect(ruleResult.note).toContain("not yet implemented");
+    expect(ruleResult.note).toContain("No rules matched");
 
     const webSearch = tools.find((tool) => tool.name === "web_search");
     expect(webSearch?.risk).toBe("high");

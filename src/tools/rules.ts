@@ -1,16 +1,14 @@
 /**
  * Rules 工具：自定义规则匹配。
  *
- * 当前是 Phase 1 的 schema-defined stub —— 真正的规则引擎 (NL 解析 / 匹配 /
- * 冲突处理) 在 Phase 3（src/rules/* 全部填充后）。但 schema 已固定，主循环
- * 现在就能注册它；命中阶段返回空数组 + note，让 LLM 知道规则机制存在但
- * 当前无规则可匹配。
- *
- * Phase 3 落地后改 invoke：调 RuleStore.list() + matcher.evaluate(message, rules)。
+ * Phase 3.2 实现：
+ *   - 连接 Phase 3.1 的规则引擎到工具层
+ *   - match_rules 工具供主循环调用
  */
 
 import type { EmailMessage } from "../data/models.js";
 import type { AnyToolDefinition } from "./base.js";
+import { createRuleEngine, createRuleStore } from "../rules/rules.js";
 
 export interface MatchRulesArgs {
   message: EmailMessage;
@@ -18,17 +16,27 @@ export interface MatchRulesArgs {
 
 export interface MatchedRule {
   ruleId: string;
-  description: string;
+  ruleName: string;
+  description?: string;
   action: { kind: string; args?: Record<string, unknown> };
   priority: number;
+  confidence: number;
 }
 
 export interface MatchRulesResult {
   matched: MatchedRule[];
+  conflictsResolved?: {
+    winningRule: string;
+    discardedRules: string[];
+    reason: string;
+  };
   note?: string;
 }
 
-export function createRulesTools(): AnyToolDefinition[] {
+export function createRulesTools(stateDir?: string): AnyToolDefinition[] {
+  const ruleStore = createRuleStore(stateDir);
+  const ruleEngine = createRuleEngine(ruleStore);
+
   return [
     {
       name: "match_rules",
@@ -44,11 +52,50 @@ export function createRulesTools(): AnyToolDefinition[] {
       },
       risk: "low",
       rateLimit: { perTask: 30 },
-      async invoke(_args: MatchRulesArgs): Promise<MatchRulesResult> {
-        return {
-          matched: [],
-          note: "Rules engine not yet implemented (Phase 3). No user rules to match.",
-        };
+      async invoke(args: MatchRulesArgs): Promise<MatchRulesResult> {
+        try {
+          const results = await ruleEngine.match(args.message);
+
+          if (results.length === 0) {
+            return {
+              matched: [],
+              note: "No rules matched this message.",
+            };
+          }
+
+          const conflict = await ruleEngine.resolveConflicts(results);
+
+          const matched: MatchedRule[] = results.map((r) => ({
+            ruleId: r.rule.id,
+            ruleName: r.rule.name,
+            description: r.rule.description,
+            action: {
+              kind: r.actions[0]?.type ?? "ask_user",
+              args: r.actions[0]?.params,
+            },
+            priority: r.rule.priority,
+            confidence: r.confidence,
+          }));
+
+          return {
+            matched,
+            conflictsResolved: conflict.winningRule
+              ? {
+                  winningRule: conflict.winningRule.name,
+                  discardedRules: conflict.discardedRules.map((r) => r.name),
+                  reason: conflict.reason,
+                }
+              : undefined,
+            note: conflict.discardedRules.length > 0
+              ? `Conflict resolved: ${conflict.reason}`
+              : undefined,
+          };
+        } catch (error) {
+          return {
+            matched: [],
+            note: `Rules engine error: ${error instanceof Error ? error.message : "Unknown error"}`,
+          };
+        }
       },
     },
   ];

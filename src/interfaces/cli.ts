@@ -17,7 +17,7 @@
 import { Command } from "commander";
 import path from "node:path";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
-import { JsonMemoryStore } from "../data/memory.js";
+import { JsonMemoryStore, getRecentHistory, rollbackToHistoryEntry, getHistoryBySender } from "../data/memory.js";
 import { ReportStore } from "../data/reports.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
@@ -309,6 +309,136 @@ async function main(): Promise<void> {
         console.log(`Created ${result.draftsCreated} draft(s).`);
         await memoryStore.save(agent.memory);
       });
+    });
+
+  const memoryCommand = program
+    .command("memory")
+    .description("Manage agent memory and preferences");
+
+  memoryCommand
+    .command("list")
+    .description("List all sender preferences")
+    .action(async () => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const memoryStore = new JsonMemoryStore(paths.memory);
+      const memory = await memoryStore.load();
+
+      if (Object.keys(memory.senderPreferences).length === 0) {
+        console.log("No sender preferences stored.");
+        return;
+      }
+
+      console.log("Sender Preferences:");
+      console.log("=".repeat(80));
+      for (const [sender, pref] of Object.entries(memory.senderPreferences)) {
+        console.log(`\n${sender}`);
+        console.log(`  Category: ${pref.category ?? "None"}`);
+        console.log(`  Preferred Action: ${pref.preferredAction ?? "None"}`);
+        console.log(`  Importance Delta: ${pref.importanceDelta}`);
+        console.log(`  Ignored Count: ${pref.ignoredCount}`);
+        if (pref.learnedFrom) {
+          console.log(`  Learned From: ${pref.learnedFrom}`);
+        }
+        if (pref.learnedAt) {
+          console.log(`  Learned At: ${new Date(pref.learnedAt).toLocaleString()}`);
+        }
+      }
+    });
+
+  memoryCommand
+    .command("history")
+    .description("View preference change history")
+    .option("--sender <email>", "Filter by sender email")
+    .option("--limit <number>", "Limit number of entries", "20")
+    .action(async (options) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const memoryStore = new JsonMemoryStore(paths.memory);
+      const memory = await memoryStore.load();
+
+      const history = options.sender
+        ? getHistoryBySender(memory, options.sender)
+        : getRecentHistory(memory, parseInt(options.limit));
+
+      if (history.length === 0) {
+        console.log("No history entries found.");
+        return;
+      }
+
+      console.log("Preference History:");
+      console.log("=".repeat(80));
+      for (const entry of history) {
+        const time = new Date(entry.timestamp).toLocaleString();
+        console.log(`\nID: ${entry.id}`);
+        console.log(`  Time: ${time}`);
+        console.log(`  Sender: ${entry.sender}`);
+        console.log(`  Action: ${entry.actionType}`);
+        if (entry.reason) {
+          console.log(`  Reason: ${entry.reason}`);
+        }
+        console.log(`  New Action: ${entry.newPreference.preferredAction ?? "None"}`);
+        if (entry.previousPreference) {
+          console.log(`  Previous Action: ${entry.previousPreference.preferredAction ?? "None"}`);
+        }
+      }
+    });
+
+  memoryCommand
+    .command("rollback")
+    .description("Rollback to a previous preference state")
+    .argument("<id>", "History entry ID to rollback to")
+    .action(async (historyId) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const memoryStore = new JsonMemoryStore(paths.memory);
+      const memory = await memoryStore.load();
+
+      const result = rollbackToHistoryEntry(memory, historyId);
+
+      if (result.success) {
+        await memoryStore.save(memory);
+        console.log(result.message);
+      } else {
+        console.error(`Error: ${result.message}`);
+        process.exit(1);
+      }
+    });
+
+  memoryCommand
+    .command("show")
+    .description("Show details for a specific sender")
+    .argument("<sender>", "Sender email address")
+    .action(async (sender) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const memoryStore = new JsonMemoryStore(paths.memory);
+      const memory = await memoryStore.load();
+
+      const pref = memory.senderPreferences[sender.toLowerCase()];
+
+      if (!pref) {
+        console.log(`No preference found for ${sender}`);
+        return;
+      }
+
+      console.log(`Preferences for ${sender}:`);
+      console.log("=".repeat(80));
+      console.log(`Category: ${pref.category ?? "None"}`);
+      console.log(`Preferred Action: ${pref.preferredAction ?? "None"}`);
+      console.log(`Importance Delta: ${pref.importanceDelta}`);
+      console.log(`Ignored Count: ${pref.ignoredCount}`);
+      if (pref.learnedFrom) {
+        console.log(`Learned From: ${pref.learnedFrom}`);
+      }
+      if (pref.learnedAt) {
+        console.log(`Learned At: ${new Date(pref.learnedAt).toLocaleString()}`);
+      }
+
+      const history = getHistoryBySender(memory, sender);
+      if (history.length > 0) {
+        console.log(`\nRecent History (${history.length} entries):`);
+        for (const entry of history.slice(0, 5)) {
+          const time = new Date(entry.timestamp).toLocaleString();
+          console.log(`  ${time}: ${entry.actionType} - ${entry.reason ?? "no reason"}`);
+        }
+      }
     });
 
   await program.parseAsync(process.argv);

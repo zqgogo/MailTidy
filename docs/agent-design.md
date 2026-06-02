@@ -1156,7 +1156,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 2.3 | ✅ 已开始：[src/data/learning-proposer.ts](src/data/learning-proposer.ts) 实现 `LearningProposer`，扫描近 N 天决策日志生成候选偏好，支持开场提问和应用提议 |
 | 2.4 | ✅ 已开始：[src/data/proactive-channel.ts](src/data/proactive-channel.ts) 实现 `ProactiveChannel`，扫描四类场景按重要性排序，最多浮出 3 条建议，支持 `--quiet` 模式 |
 | 2.5 | ✅ 已开始：[src/data/rejected-proposals.ts](src/data/rejected-proposals.ts) 实现拒绝建议存储，拒绝的建议 30 天内不再浮出；`--quiet` 模式已在主动告知通道实现 |
-| 2.6 | 偏好加 `learnedFrom` / `learnedAt` 元数据；`mailtidy memory rollback <id>` 一键回滚 |
+| 2.6 | ✅ 已开始：[src/data/memory.ts](src/data/memory.ts) 偏好加 `learnedFrom`/`learnedAt` 元数据；支持 `mailtidy memory list/history/rollback/show` 命令一键回滚 |
 | 2.7 | 学习安全边界测试：单次反馈影响有上限；危险偏好必须 raise 而不是写入 |
 | 2.8 | pending 队列 + 重操作执行机制 |
 

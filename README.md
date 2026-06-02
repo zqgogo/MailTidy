@@ -93,7 +93,9 @@ in the agent loop. Phase 2.3 has started with the asynchronous learning proposer
 Phase 2.4 has started with the proactive notification channel (`ProactiveChannel`)
 that scans for security risks, automation opportunities, and learning proposals.
 Phase 2.5 has started with the "less is more" constraint (`RejectedProposalStore`)
-that prevents rejected suggestions from reappearing for 30 days. See
+that prevents rejected suggestions from reappearing for 30 days.
+Phase 2.6 has started with preference metadata (`learnedFrom`/`learnedAt`) and
+memory rollback commands (`mailtidy memory list/history/rollback/show`). See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

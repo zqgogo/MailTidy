@@ -1111,7 +1111,8 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.8 受限回查与上下文压缩已完成：`EmailConnector.readById()` 和 `read_original_record` 工具可按 ID 读取最多 6000 字符的原始邮件 / 记忆条目；`verify_domain` 已升级为离线启发式域名风险核对（识别 .test TLD、安全/登录诱导词、连字符、数字等风险信号）；[src/agent/compression.ts](src/agent/compression.ts) 实现了上下文压缩（事实/推断/来源分离、持续压缩、阶段摘要）；[src/agent/context.ts](src/agent/context.ts) 的 `WorkingContextManager` 支持完整的证据引用索引管理。`tests/tools.test.ts` / `tests/loop.test.ts` / `tests/compression.test.ts` 覆盖原文读取、可疑链接域名核对、上下文压缩与证据引用。
 - Phase 2.1 学习层已开始落地：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持处理 `user_confirmation` / `user_rejection` / `user_correction` / `action_executed` / `action_skipped` 五类学习信号，输出结构化 `PreferenceUpdate`；实现 `proposePreferencesFromLogs()` 异步学习提议器，扫描近 N 天决策日志生成自动化偏好建议；内置学习安全边界（危险关键词过滤、单次反馈影响上限、低置信度过滤）。`tests/learning.test.ts` 覆盖 10 个学习场景。
 - Phase 2.2 同步学习信号已落地：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore`，以 JSONL 格式持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号；`AgentLoopDeps` 新增 `decisionLogs` 和 `learningEngine` 可选依赖。`tests/decision-logs.test.ts` 覆盖 10 个日志存储场景。
-- 测试 79/79 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 2.3 异步学习提议器已落地：[src/data/learning-proposer.ts](src/data/learning-proposer.ts) 实现 `LearningProposer`，扫描近 N 天决策日志识别可自动化模式；支持生成候选偏好提议、获取开场提问文本、应用提议到内存；默认阈值为连续 3 次确认后自动提议。`tests/learning-proposer.test.ts` 覆盖 10 个提议场景。
+- 测试 89/89 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
@@ -1151,7 +1152,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | --- | --- |
 | 2.1 | ✅ 已开始：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持五类学习信号处理、异步学习提议器、学习安全边界 |
 | 2.2 | ✅ 已开始：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore` 持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号 |
-| 2.3 | 异步学习提议器：每次 Agent 启动时扫近 N 天决策日志，候选偏好作为开场提问 |
+| 2.3 | ✅ 已开始：[src/data/learning-proposer.ts](src/data/learning-proposer.ts) 实现 `LearningProposer`，扫描近 N 天决策日志生成候选偏好，支持开场提问和应用提议 |
 | 2.4 | 主动告知通道：每次任务结束扫描 §2.8 场景，最多浮 3 条按重要性排序的建议 |
 | 2.5 | "少即是多"约束：拒绝过的建议 30 天内不重复浮出；`--quiet` 只在高风险时提醒 |
 | 2.6 | 偏好加 `learnedFrom` / `learnedAt` 元数据；`mailtidy memory rollback <id>` 一键回滚 |

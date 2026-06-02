@@ -88,7 +88,8 @@ and context compression (fact/inference/source separation). Phase 2.1 has starte
 with the learning layer (`LearningEngine`) that processes user feedback signals
 and proposes preferences from decision patterns. Phase 2.2 has started with
 decision log persistence (`DecisionLogStore`) and automatic signal recording
-in the agent loop. See
+in the agent loop. Phase 2.3 has started with the asynchronous learning proposer
+(`LearningProposer`) that scans decision logs and generates opening prompts. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

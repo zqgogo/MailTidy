@@ -84,13 +84,14 @@ low-confidence, suspicious-link, and preference-conflict cases in plans and
 reports, and the deterministic loop runs bounded investigation tools before
 reporting observations. Judgments now include structured rich suggestions, and
 Phase 1.8 is complete with bounded original record reading, offline domain verification,
-and context compression (fact/inference/source separation). See
+and context compression (fact/inference/source separation). Phase 2.1 has started
+with the learning layer (`LearningEngine`) that processes user feedback signals
+and proposes preferences from decision patterns. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 1: add trace/context regression cases for Phase 1 acceptance, including
-  low-confidence original reads, suspicious-link domain checks, and long-thread
-  summary compression.
+- Phase 2: wire learning signals to askUser callbacks and applyAction hooks;
+  implement proactive notifications channel and pending queue for heavy operations.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

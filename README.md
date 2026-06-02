@@ -86,12 +86,14 @@ reporting observations. Judgments now include structured rich suggestions, and
 Phase 1.8 is complete with bounded original record reading, offline domain verification,
 and context compression (fact/inference/source separation). Phase 2.1 has started
 with the learning layer (`LearningEngine`) that processes user feedback signals
-and proposes preferences from decision patterns. See
+and proposes preferences from decision patterns. Phase 2.2 has started with
+decision log persistence (`DecisionLogStore`) and automatic signal recording
+in the agent loop. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations
 
-- Phase 2: wire learning signals to askUser callbacks and applyAction hooks;
+- Phase 2: wire askUser callback hooks for user confirmation/rejection/correction;
   implement proactive notifications channel and pending queue for heavy operations.
 - Phase 4: implement real `GmailConnector` / `OutlookConnector` (read-only
   scope first; writes opened one at a time after a week of dry-run).

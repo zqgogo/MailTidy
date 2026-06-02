@@ -19,6 +19,8 @@ import type { JsonTaskStore } from "../data/tasks.js";
 import type { LLMRouter } from "../llm/router.js";
 import type { EmailConnector } from "../integrations/email/base.js";
 import { emptyMemory, type AgentMemory } from "../data/memory.js";
+import { createLearningEngine, createLearningSignal, type LearningEngine } from "../data/learning.js";
+import { createDecisionLogStore, type DecisionLogStore } from "../data/decision-logs.js";
 import {
   ActionType,
   type AgentPlan,
@@ -57,6 +59,8 @@ export interface AgentLoopDeps {
   reports?: ReportStore;
   traces?: TraceStore;
   stateDir?: string;
+  decisionLogs?: DecisionLogStore;
+  learningEngine?: LearningEngine;
 }
 
 export interface RunAgentLoopOptions {
@@ -104,6 +108,8 @@ export async function runAgentLoop(
   const budget = emptyBudget();
   const policy = deps.policy ?? new DecisionPolicy({ automationMode: options.automationMode });
   const memory = deps.memory ?? emptyMemory();
+  const decisionLogs = deps.decisionLogs ?? createDecisionLogStore(deps.stateDir);
+  const learningEngine = deps.learningEngine ?? createLearningEngine();
   const tools = createMailTidyTools({
     connector: deps.connector,
     llm: deps.router.clientFor("classification"),
@@ -225,6 +231,15 @@ export async function runAgentLoop(
       if (action.requiresConfirmation && !options.autoConfirm) {
         execution.skippedConfirmation += action.emailIds.length;
         execution.notes.push(`skipped ${action.action}: confirmation required`);
+        
+        for (const emailId of action.emailIds) {
+          const message = messages.find((m) => m.id === emailId);
+          const judgment = judgments.find((j) => j.emailId === emailId);
+          if (message && judgment) {
+            const signal = createLearningSignal("action_skipped", message, judgment, { taskId: record.taskId });
+            await decisionLogs.append({ ...signal, taskId: record.taskId });
+          }
+        }
         continue;
       }
       const result = (await applyEmailAction.invoke({
@@ -232,6 +247,16 @@ export async function runAgentLoop(
         dryRun: options.dryRun ?? false,
       })) as ExecutionResult;
       mergeExecution(execution, result);
+      
+      for (const emailId of action.emailIds) {
+        const message = messages.find((m) => m.id === emailId);
+        const judgment = judgments.find((j) => j.emailId === emailId);
+        if (message && judgment) {
+          const signal = createLearningSignal("action_executed", message, judgment, { taskId: record.taskId });
+          await decisionLogs.append({ ...signal, taskId: record.taskId });
+        }
+      }
+      
       budget.steps += 1;
       budget.toolCalls += 1;
       record.progress.completedActionIds.push(actionId(action));

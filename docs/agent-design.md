@@ -1110,11 +1110,12 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 - Phase 1.7 富建议结构已落地：[src/data/models.ts](src/data/models.ts) 的 `EmailJudgment` 新增 6 字段 `Suggestion` 子结构（summary / recommendedAction / rationale / riskLevel / confidence / needsUserConfirmation）；[src/integrations/llm/piClient.ts](src/integrations/llm/piClient.ts) 要求模型输出该结构并做容错解析，[src/integrations/llm/heuristic.ts](src/integrations/llm/heuristic.ts) 为本地兜底生成同构建议；日报报告优先展示结构化建议。`tests/llm-adapters.test.ts` / `tests/tools.test.ts` / `tests/loop.test.ts` 覆盖输出与展示。
 - Phase 1.8 受限回查与上下文压缩已完成：`EmailConnector.readById()` 和 `read_original_record` 工具可按 ID 读取最多 6000 字符的原始邮件 / 记忆条目；`verify_domain` 已升级为离线启发式域名风险核对（识别 .test TLD、安全/登录诱导词、连字符、数字等风险信号）；[src/agent/compression.ts](src/agent/compression.ts) 实现了上下文压缩（事实/推断/来源分离、持续压缩、阶段摘要）；[src/agent/context.ts](src/agent/context.ts) 的 `WorkingContextManager` 支持完整的证据引用索引管理。`tests/tools.test.ts` / `tests/loop.test.ts` / `tests/compression.test.ts` 覆盖原文读取、可疑链接域名核对、上下文压缩与证据引用。
 - Phase 2.1 学习层已开始落地：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持处理 `user_confirmation` / `user_rejection` / `user_correction` / `action_executed` / `action_skipped` 五类学习信号，输出结构化 `PreferenceUpdate`；实现 `proposePreferencesFromLogs()` 异步学习提议器，扫描近 N 天决策日志生成自动化偏好建议；内置学习安全边界（危险关键词过滤、单次反馈影响上限、低置信度过滤）。`tests/learning.test.ts` 覆盖 10 个学习场景。
-- 测试 69/69 全绿，`npm test` 与 `npm run typecheck` 均通过
+- Phase 2.2 同步学习信号已落地：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore`，以 JSONL 格式持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号；`AgentLoopDeps` 新增 `decisionLogs` 和 `learningEngine` 可选依赖。`tests/decision-logs.test.ts` 覆盖 10 个日志存储场景。
+- 测试 79/79 全绿，`npm test` 与 `npm run typecheck` 均通过
 
 **尚未实现**（下一阶段重点）：
 
-- 同步学习信号挂钩（askUser 回调、applyAction 后写决策日志）
+- askUser 回调挂学习钩子（用户确认/拒绝/纠正）
 - 主动告知通道、pending 队列、偏好回滚
 - 自定义规则引擎、研究型分析、真实邮箱、Web UI
 
@@ -1149,7 +1150,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | # | 工作项 |
 | --- | --- |
 | 2.1 | ✅ 已开始：[src/data/learning.ts](src/data/learning.ts) 实现 `LearningEngine` 纯函数，支持五类学习信号处理、异步学习提议器、学习安全边界 |
-| 2.2 | 同步学习信号：`askUser` 回调挂学习钩子，`applyAction` 后写决策日志 |
+| 2.2 | ✅ 已开始：[src/data/decision-logs.ts](src/data/decision-logs.ts) 实现 `DecisionLogStore` 持久化决策日志；[src/agent/loop.ts](src/agent/loop.ts) 在 `applyEmailAction` 后自动记录 `action_executed` / `action_skipped` 信号 |
 | 2.3 | 异步学习提议器：每次 Agent 启动时扫近 N 天决策日志，候选偏好作为开场提问 |
 | 2.4 | 主动告知通道：每次任务结束扫描 §2.8 场景，最多浮 3 条按重要性排序的建议 |
 | 2.5 | "少即是多"约束：拒绝过的建议 30 天内不重复浮出；`--quiet` 只在高风险时提醒 |

@@ -142,6 +142,78 @@ export class TrustedSources {
       lowWeight: sources.filter((s) => s.weight < 0.5).length,
     };
   }
+
+  /**
+   * 从学习反馈更新权重
+   * 用于学习层根据用户反馈调整可信来源权重
+   */
+  async updateFromFeedback(
+    domain: string,
+    isPositive: boolean,
+    confidence: number = 0.7,
+  ): Promise<boolean> {
+    const source = this.sources.get(domain);
+    if (!source) return false;
+
+    // 正面反馈增加权重，负面反馈降低权重
+    const delta = isPositive ? 0.1 : -0.1;
+    source.weight = Math.max(0, Math.min(1, source.weight + delta * confidence));
+    source.lastVerified = new Date().toISOString();
+
+    return true;
+  }
+
+  /**
+   * 批量调整权重
+   * 用于学习层批量更新多个来源的权重
+   */
+  async batchUpdateWeights(
+    updates: Array<{ domain: string; delta: number; confidence?: number }>,
+  ): Promise<number> {
+    let updated = 0;
+
+    for (const { domain, delta, confidence = 0.7 } of updates) {
+      const source = this.sources.get(domain);
+      if (source) {
+        source.weight = Math.max(0, Math.min(1, source.weight + delta * confidence));
+        source.lastVerified = new Date().toISOString();
+        updated++;
+      }
+    }
+
+    return updated;
+  }
+
+  /**
+   * 获取需要重新验证的来源
+   * 用于学习层定期检查可信来源的有效性
+   */
+  getSourcesNeedingVerification(days: number = 30): TrustedSource[] {
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - days);
+
+    return this.getAll().filter((s) => {
+      if (!s.lastVerified) return true;
+      return new Date(s.lastVerified) < cutoff;
+    });
+  }
+
+  /**
+   * 自动清理低权重来源
+   * 用于学习层定期清理不再可信的来源
+   */
+  async cleanupLowWeight(threshold: number = 0.1): Promise<number> {
+    let removed = 0;
+
+    for (const [domain, source] of this.sources.entries()) {
+      if (source.weight < threshold) {
+        this.sources.delete(domain);
+        removed++;
+      }
+    }
+
+    return removed;
+  }
 }
 
 export function createTrustedSources(stateDir?: string): TrustedSources {

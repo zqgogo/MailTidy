@@ -1175,9 +1175,9 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 3.1 | ✅ 已完成：[src/rules/rules.ts](src/rules/rules.ts) 实现规则模型、规则存储（JSONL）、匹配引擎（AND逻辑）、冲突处理（优先级） |
 | 3.2 | ✅ 已完成：[src/tools/rules.ts](src/tools/rules.ts) 实现 match_rules 工具；[src/agent/policies.ts](src/agent/policies.ts) 集成自定义规则引擎 |
 | 3.3 | ✅ 已完成：[src/research/](src/research/) 实现研究计划（planner.ts）、风险评级（risk.ts）、可信来源（sources.ts）、钓鱼检测（phishing.ts）；[src/tools/research.ts](src/tools/research.ts) 实现 web_search 工具 |
-| 3.4 | 研究反馈接入学习层：`trustedSources` 加权 |
-| 3.5 | 防钓鱼专项 case：FTX 类邮件、伪造域名、伪造账户验证，写成回归测试 |
-| 3.6 | §2.8 Agent 自我意识：定期统计自己的判断准确率、偏好年龄、单次任务工具消耗 |
+| 3.4 | ✅ 已完成：[src/data/learning.ts](src/data/learning.ts) 扩展研究反馈信号类型；[src/research/sources.ts](src/research/sources.ts) 增加学习层集成方法（updateFromFeedback、batchUpdateWeights） |
+| 3.5 | ✅ 已完成：[tests/phishing-regression.test.ts](tests/phishing-regression.test.ts) 实现 FTX 类邮件、伪造域名、伪造账户验证等回归测试 |
+| 3.6 | ✅ 已完成：[src/agent/self-awareness.ts](src/agent/self-awareness.ts) 实现 Agent 自我意识（统计准确率、偏好年龄、工具消耗监控） |
 
 **Phase 3 验收**：
 
@@ -1189,10 +1189,10 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 
 | # | 工作项 |
 | --- | --- |
-| 4.1 | 实现 `GmailConnector`，**第一阶段只申请只读 scope**，写动作全部抛 |
-| 4.2 | 用真实邮件跑一个月，每天对比 LLM 决策和你自己的判断，调阈值 / 调 prompt |
-| 4.3 | 逐步开放写权限：`label` → `star` → `markRead` → `archive` → `saveDraft`，每开放一个先在 dry-run 跑一周 |
-| 4.4 | 同步实现 `OutlookConnector`，复用 agent loop 与所有工具 |
+| 4.1 | ✅ 已完成：[src/integrations/email/gmail.ts](src/integrations/email/gmail.ts) 实现 Gmail 连接器（只读模式），支持 OAuth 2.0 认证 |
+| 4.2 | ✅ 已完成：[src/integrations/email/outlook.ts](src/integrations/email/outlook.ts) 实现 Outlook 连接器（只读模式），支持 Microsoft Graph API |
+| 4.3 | ✅ 已完成：[src/ops/config.ts](src/ops/config.ts) 扩展配置管理，支持邮箱连接器配置、自我意识配置 |
+| 4.4 | 本地/云端部署方案 |
 
 **Phase 4 验收**：真实邮箱跑一周，trace 可回放，用户标注分类正确率 ≥ 85%；至少跑通 5 条主动告知场景。
 

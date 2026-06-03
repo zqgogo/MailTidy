@@ -11,7 +11,7 @@ import type { AgentMemory, SenderPreference } from "./memory.js";
 import type { EmailJudgment, EmailMessage, ExecutionResult } from "./models.js";
 
 export interface LearningSignal {
-  type: "user_confirmation" | "user_rejection" | "user_correction" | "action_executed" | "action_skipped";
+  type: "user_confirmation" | "user_rejection" | "user_correction" | "action_executed" | "action_skipped" | "research_feedback" | "domain_verified" | "phishing_detected";
   emailId: string;
   sender: string;
   originalCategory: string;
@@ -20,6 +20,13 @@ export interface LearningSignal {
   correctedCategory?: string;
   timestamp: string;
   metadata?: Record<string, unknown>;
+  researchData?: {
+    domain?: string;
+    isTrusted?: boolean;
+    riskLevel?: string;
+    phishingConfidence?: number;
+    investigationResults?: unknown[];
+  };
 }
 
 export interface PreferenceUpdate {
@@ -87,6 +94,15 @@ export class LearningEngine {
         break;
       case "action_skipped":
         updates.push(...this.handleActionSkipped(signal, memory));
+        break;
+      case "research_feedback":
+        updates.push(...this.handleResearchFeedback(signal, memory));
+        break;
+      case "domain_verified":
+        updates.push(...this.handleDomainVerified(signal, memory));
+        break;
+      case "phishing_detected":
+        updates.push(...this.handlePhishingDetected(signal, memory));
         break;
     }
 
@@ -281,6 +297,105 @@ export class LearningEngine {
     ];
   }
 
+  private handleResearchFeedback(signal: LearningSignal, memory: AgentMemory): PreferenceUpdate[] {
+    const updates: PreferenceUpdate[] = [];
+    const researchData = signal.researchData;
+
+    if (!researchData) return updates;
+
+    // 如果研究确认发件人可信，提高其重要性
+    if (researchData.isTrusted && researchData.domain) {
+      const currentPref = memory.senderPreferences[signal.sender.toLowerCase()];
+      updates.push({
+        kind: "sender",
+        key: signal.sender,
+        value: {
+          ...currentPref,
+          importanceDelta: Math.min((currentPref?.importanceDelta ?? 0) + 2, this.options.maxImpactPerSignal),
+        },
+        confidence: 0.85,
+        learnedFrom: `research_trusted_domain_${researchData.domain}`,
+        learnedAt: new Date().toISOString(),
+        reason: `Research confirmed domain ${researchData.domain} is trusted`,
+      });
+    }
+
+    // 如果研究显示高风险，降低重要性
+    if (researchData.riskLevel === "high") {
+      const currentPref = memory.senderPreferences[signal.sender.toLowerCase()];
+      updates.push({
+        kind: "sender",
+        key: signal.sender,
+        value: {
+          ...currentPref,
+          importanceDelta: Math.max((currentPref?.importanceDelta ?? 0) - 2, -this.options.maxImpactPerSignal),
+        },
+        confidence: 0.8,
+        learnedFrom: `research_high_risk_${researchData.domain}`,
+        learnedAt: new Date().toISOString(),
+        reason: `Research identified high risk from ${researchData.domain}`,
+      });
+    }
+
+    return updates;
+  }
+
+  private handleDomainVerified(signal: LearningSignal, memory: AgentMemory): PreferenceUpdate[] {
+    const updates: PreferenceUpdate[] = [];
+    const researchData = signal.researchData;
+
+    if (!researchData || !researchData.domain) return updates;
+
+    const currentPref = memory.senderPreferences[signal.sender.toLowerCase()];
+    const impact = researchData.isTrusted ? 1 : -1;
+
+    updates.push({
+      kind: "sender",
+      key: signal.sender,
+      value: {
+        ...currentPref,
+        importanceDelta: this.clampImpact((currentPref?.importanceDelta ?? 0) + impact),
+      },
+      confidence: 0.75,
+      learnedFrom: `domain_verification_${researchData.domain}`,
+      learnedAt: new Date().toISOString(),
+      reason: `Domain ${researchData.domain} verified as ${researchData.isTrusted ? "trusted" : "untrusted"}`,
+    });
+
+    return updates;
+  }
+
+  private handlePhishingDetected(signal: LearningSignal, memory: AgentMemory): PreferenceUpdate[] {
+    const updates: PreferenceUpdate[] = [];
+    const researchData = signal.researchData;
+
+    if (!researchData) return updates;
+
+    const phishingConfidence = researchData.phishingConfidence ?? 0;
+
+    // 如果检测到钓鱼，大幅降低发件人重要性
+    if (phishingConfidence > 0.7) {
+      const currentPref = memory.senderPreferences[signal.sender.toLowerCase()];
+      updates.push({
+        kind: "sender",
+        key: signal.sender,
+        value: {
+          ...currentPref,
+          importanceDelta: -this.options.maxImpactPerSignal,
+          preferredAction: "ask",
+        },
+        confidence: 0.95,
+        learnedFrom: `phishing_detection_${phishingConfidence.toFixed(2)}`,
+        learnedAt: new Date().toISOString(),
+        reason: `Phishing detected with ${Math.round(phishingConfidence * 100)}% confidence`,
+        isDangerous: false,
+        requiresConfirmation: false,
+      });
+    }
+
+    return updates;
+  }
+
   private isSafeUpdate(update: PreferenceUpdate): boolean {
     const content = `${update.key} ${update.reason}`.toLowerCase();
     const hasDangerous = this.options.dangerousKeywords.some((kw) => content.includes(kw.toLowerCase()));
@@ -346,6 +461,7 @@ export function createLearningSignal(
   message: EmailMessage,
   judgment: EmailJudgment,
   metadata?: Record<string, unknown>,
+  researchData?: LearningSignal["researchData"],
 ): LearningSignal {
   return {
     type,
@@ -355,5 +471,6 @@ export function createLearningSignal(
     suggestedAction: judgment.actionSuggestion,
     timestamp: new Date().toISOString(),
     metadata,
+    researchData,
   };
 }

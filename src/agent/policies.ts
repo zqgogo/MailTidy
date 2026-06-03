@@ -17,6 +17,7 @@
 import { ActionRisk, ActionType, type AgentPlan, Category, type EmailJudgment, type PlannedAction, type EmailMessage } from "../data/models.js";
 import { type AgentMemory, preferenceFor } from "../data/memory.js";
 import { createRuleEngine } from "../rules/rules.js";
+import type { AgentSelfAwareness } from "./self-awareness.js";
 
 export interface DecisionPolicyOptions {
   archiveThreshold?: number;

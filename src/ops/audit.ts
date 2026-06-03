@@ -418,7 +418,7 @@ export class DataManager {
           
           // Extract timestamp from filename (backup-{timestamp}.mtb)
           const match = file.match(/backup-(\d+)\.mtb/);
-          const createdAt = match ? new Date(parseInt(match[1])) : null;
+          const createdAt = match && match[1] ? new Date(parseInt(match[1])) : null;
           
           backups.push({
             fileName: file,

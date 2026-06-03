@@ -1,11 +1,58 @@
 # MailTidy
 
+> 🚀 AI-Powered Email Agent - 邮件智能整理助手
+
 MailTidy is an email agent that triages inboxes, drafts replies, finds
 subscriptions, and produces daily briefings. It is designed as an **agent**,
 not a one-off automation: it reasons over email context, creates an
 execution plan, lets the user confirm or adjust it before mailbox writes,
 persists task state to disk so it can resume after a `kill -9`, and learns
 user preferences over time.
+
+## 📊 Current Progress
+
+### ✅ Phase 1-2: Core Features
+- Heuristic email classification engine
+- Preference learning system
+- Decision history tracking
+
+### ✅ Phase 3: Research & Awareness
+- 3.1-3.3: Research planner & phishing detection
+- 3.4: Research feedback integration
+- 3.5: Phishing regression tests (21 test cases)
+- 3.6: Agent self-awareness
+
+### ✅ Phase 4: Email Connectors
+- Gmail connector (OAuth 2.0)
+- Outlook connector (Microsoft Graph API)
+- Cross-platform deployment solutions
+
+### ✅ Phase 5: DevOps Tools
+- CLI command-line tool
+- Runtime monitoring & alerts
+- Structured logging system
+- Audit logs & data management
+
+## 🚀 Quick Start
+
+```bash
+# Install dependencies
+npm install
+
+# Build project
+npm run build
+
+# Initialize
+node dist/cli.js init
+
+# Run cleanup (dry-run)
+node dist/cli.js run-cleanup --dry-run
+
+# Health check
+node dist/cli.js health-check
+```
+
+For detailed guide, see [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 The project was originally prototyped in Python; it has since been migrated
 to TypeScript and is built on

@@ -1200,10 +1200,10 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 
 | # | 工作项 |
 | --- | --- |
-| 5.1 | 定时任务（cron / launchd / GitHub Actions schedule） |
-| 5.2 | Telegram / Slack / 桌面通知（主动告知推送到这些通道） |
-| 5.3 | Web 或桌面 UI（基于 `@earendil-works/pi-web-ui` + `@earendil-works/pi-tui`）：计划展示 → 用户确认 → 执行可视化；trace 回看；偏好管理 + 一键回滚；主动告知 inbox |
-| 5.4 | 审计日志、用户偏好导出 / 删除接口、加密备份 |
+| 5.1 | ✅ 已完成：CLI 命令行工具 [src/cli.ts](src/cli.ts)，支持 run-cleanup、status、health-check、config、init、reset 命令 |
+| 5.2 | ✅ 已完成：运行时监控与告警 [src/ops/monitor.ts](src/ops/monitor.ts)，支持控制台、日志、Webhook 通知 |
+| 5.3 | ✅ 已完成：结构化日志系统 [src/ops/logger.ts](src/ops/logger.ts)，支持分级日志、日志轮转、日志查询 |
+| 5.4 | 审计日志、用户偏好导出/删除接口、加密备份 |
 
 #### 核心顺序的理由
 

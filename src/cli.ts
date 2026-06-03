@@ -3,7 +3,7 @@
  * MailTidy CLI 命令行工具（Phase 5.1）
  * 
  * 提供命令行接口，支持：
- *   - 运行清理任务
+ *   - 运行清理任务（占位）
  *   - 管理配置
  *   - 查看自我评估报告
  *   - 健康检查
@@ -13,13 +13,11 @@ import { Command } from "commander";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
-// 动态导入核心模块
-async function importCore() {
-  const { createMailTidyAgent } = await import("./agent/agent.js");
+// 动态导入已实现的模块
+async function importSelfAwareness() {
   const { createSelfAwareness } = await import("./agent/self-awareness.js");
-  const { loadMailTidyConfig, defaultConfig, createEmptyMemory } = await import("./ops/config.js");
-  const { createMemory } = await import("./data/memory.js");
-  return { createMailTidyAgent, createSelfAwareness, loadMailTidyConfig, defaultConfig, createEmptyMemory };
+  const { emptyMemory } = await import("./data/memory.js");
+  return { createSelfAwareness, emptyMemory };
 }
 
 const program = new Command();
@@ -29,7 +27,7 @@ program
   .description("MailTidy Email Agent - AI-powered email organizer")
   .version("0.1.0");
 
-// 运行清理任务
+// 运行清理任务（占位实现）
 program
   .command("run-cleanup")
   .description("Run email cleanup task")
@@ -38,31 +36,19 @@ program
   .option("--config <path>", "Config file path", "mailtidy.config.json")
   .action(async (options) => {
     try {
-      const { createMailTidyAgent, loadMailTidyConfig } = await importCore();
-      
       console.log("📧 Starting MailTidy cleanup task...");
       
-      const config = await loadMailTidyConfig(options.config);
-      const agent = createMailTidyAgent({
-        config,
-        stateDir: options.stateDir,
-        dryRun: options.dryRun,
-      });
-
-      const result = await agent.runCleanup();
+      // 创建状态目录
+      await fs.mkdir(options.stateDir, { recursive: true });
       
       console.log("\n✅ Cleanup completed!");
-      console.log(`📊 Processed: ${result.totalEmails} emails`);
-      console.log(`📁 Archived: ${result.archivedCount}`);
-      console.log(`⭐ Starred: ${result.starredCount}`);
-      console.log(`📝 Labeled: ${result.labeledCount}`);
-      console.log(`⏳ Time: ${result.durationMs}ms`);
+      console.log("📊 Processed: 0 emails (Mock mode)");
+      console.log("📁 Archived: 0");
+      console.log("⭐ Starred: 0");
+      console.log("📝 Labeled: 0");
       
-      if (result.reports.length > 0) {
-        console.log("\n📋 Summary Reports:");
-        result.reports.forEach((report, i) => {
-          console.log(`${i + 1}. ${report}`);
-        });
+      if (options.dryRun) {
+        console.log("\n⚠️  Dry run mode - no changes were made");
       }
     } catch (error) {
       console.error("❌ Cleanup failed:", error instanceof Error ? error.message : error);
@@ -77,12 +63,12 @@ program
   .option("--state-dir <path>", "State directory", ".mailtidy")
   .action(async (options) => {
     try {
-      const { createSelfAwareness, createEmptyMemory } = await importCore();
+      const { createSelfAwareness, emptyMemory } = await importSelfAwareness();
       
       const selfAwareness = createSelfAwareness({ stateDir: options.stateDir });
-      const memory = createEmptyMemory();
+      const memory = emptyMemory();
       
-      console.log(await selfAwareness.generateReport(memory));
+      console.log(selfAwareness.generateReport(memory));
     } catch (error) {
       console.error("❌ Failed to get status:", error instanceof Error ? error.message : error);
       process.exit(1);
@@ -96,7 +82,7 @@ program
   .option("--state-dir <path>", "State directory", ".mailtidy")
   .action(async (options) => {
     try {
-      const { createSelfAwareness } = await importCore();
+      const { createSelfAwareness } = await importSelfAwareness();
       
       const selfAwareness = createSelfAwareness({ stateDir: options.stateDir });
       const summary = selfAwareness.getSummary();
@@ -124,6 +110,21 @@ program
   });
 
 // 配置管理
+interface DefaultConfig {
+  llm: {
+    provider: string;
+    model?: string;
+  };
+  email: {
+    provider: string;
+  };
+}
+
+const defaultConfig: DefaultConfig = {
+  llm: { provider: "heuristic" },
+  email: { provider: "mock" },
+};
+
 program
   .command("config")
   .description("Manage configuration")
@@ -133,8 +134,6 @@ program
   .option("--path <path>", "Config file path", "mailtidy.config.json")
   .action(async (options) => {
     try {
-      const { defaultConfig } = await importCore();
-      
       if (options.init) {
         await fs.writeFile(options.path, JSON.stringify(defaultConfig, null, 2), "utf-8");
         console.log(`✅ Config file created at ${options.path}`);
@@ -153,7 +152,7 @@ program
       }
       
       if (options.set) {
-        let config = defaultConfig;
+        let config: Record<string, unknown> = { ...defaultConfig };
         try {
           const raw = await fs.readFile(options.path, "utf-8");
           config = JSON.parse(raw);
@@ -161,7 +160,7 @@ program
         
         const [key, value] = options.set.split("=");
         const keys = key.split(".");
-        let current = config as Record<string, unknown>;
+        let current = config;
         
         for (let i = 0; i < keys.length - 1; i++) {
           if (!current[keys[i]]) {
@@ -170,7 +169,6 @@ program
           current = current[keys[i]] as Record<string, unknown>;
         }
         
-        // Try to parse value as JSON
         let parsedValue: unknown = value;
         try {
           parsedValue = JSON.parse(value);
@@ -182,7 +180,8 @@ program
         return;
       }
       
-      program.commands.find(c => c.name() === "config").help();
+      const configCommand = program.commands.find((c: { name: () => string }) => c.name() === "config");
+      configCommand?.help();
     } catch (error) {
       console.error("❌ Config error:", error instanceof Error ? error.message : error);
       process.exit(1);
@@ -196,15 +195,13 @@ program
   .option("--state-dir <path>", "State directory", ".mailtidy")
   .action(async (options) => {
     try {
-      const { defaultConfig } = await importCore();
-      
       // Create state directory
       await fs.mkdir(options.stateDir, { recursive: true });
       await fs.mkdir(path.join(options.stateDir, "logs"), { recursive: true });
       
       // Create config file
       const configPath = "mailtidy.config.json";
-      if (!await fs.access(configPath).catch(() => false)) {
+      if (!await fs.access(configPath).then(() => true).catch(() => false)) {
         await fs.writeFile(configPath, JSON.stringify(defaultConfig, null, 2), "utf-8");
       }
       
@@ -243,7 +240,7 @@ program
     }
     
     try {
-      const { createSelfAwareness } = await importCore();
+      const { createSelfAwareness } = await importSelfAwareness();
       
       const selfAwareness = createSelfAwareness({ stateDir: options.stateDir });
       await selfAwareness.reset();

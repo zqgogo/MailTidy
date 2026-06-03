@@ -195,8 +195,8 @@ export class Logger {
   }> {
     const stats = {
       totalEntries: 0,
-      byLevel: { debug: 0, info: 0, warn: 0, error: 0 },
-      byCategory: {},
+      byLevel: { debug: 0, info: 0, warn: 0, error: 0 } as Record<LogLevel, number>,
+      byCategory: {} as Record<string, number>,
       fileCount: 0,
       totalSizeBytes: 0,
     };

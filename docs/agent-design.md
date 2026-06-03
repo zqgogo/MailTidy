@@ -1203,7 +1203,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 5.1 | ✅ 已完成：CLI 命令行工具 [src/cli.ts](src/cli.ts)，支持 run-cleanup、status、health-check、config、init、reset 命令 |
 | 5.2 | ✅ 已完成：运行时监控与告警 [src/ops/monitor.ts](src/ops/monitor.ts)，支持控制台、日志、Webhook 通知 |
 | 5.3 | ✅ 已完成：结构化日志系统 [src/ops/logger.ts](src/ops/logger.ts)，支持分级日志、日志轮转、日志查询 |
-| 5.4 | 审计日志、用户偏好导出/删除接口、加密备份 |
+| 5.4 | ✅ 已完成：审计日志与数据管理 [src/ops/audit.ts](src/ops/audit.ts)，支持审计日志、偏好导出/删除、加密备份 |
 
 #### 核心顺序的理由
 

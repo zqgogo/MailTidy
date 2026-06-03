@@ -129,7 +129,7 @@ describe("MailTidy tool registry", () => {
       note?: string;
     };
     expect(searchResult.results).toEqual([]);
-    expect(searchResult.note).toContain("Phase 3");
+    expect(searchResult.note).toContain("not available");
 
     const readReport = tools.find((tool) => tool.name === "read_report_summary");
     const reportResult = (await readReport?.invoke({ taskId: "nonexistent-task" })) as {

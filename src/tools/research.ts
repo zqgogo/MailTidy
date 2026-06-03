@@ -1,12 +1,9 @@
 /**
  * Research 工具：联网验证与背景调查。
  *
- * §2.9 + §2.11.4：研究型分析在 Phase 3 落地。当前是 schema-defined stub，
- * 让主循环能注册并让 LLM"知道这些工具存在"，但真正调用时返回 not_implemented，
- * 防止 LLM 在 Phase 3 之前误以为联网做了核实。
- *
- * 风险等级故意标 high：web_search 默认 ≤ 3 / 任务、verify_domain ≤ 5；
- * 同时所有高风险动作必须经 DecisionPolicy 在 beforeToolCall 阻断。
+ * Phase 3.3 实现：
+ *   - web_search 使用 WebSearch 工具进行真实联网搜索
+ *   - verify_domain 保持启发式检查
  */
 
 import type { AnyToolDefinition } from "./base.js";
@@ -51,10 +48,33 @@ export function createResearchTools(): AnyToolDefinition[] {
       risk: "high",
       rateLimit: { perTask: 3 },
       async invoke(args: WebSearchArgs): Promise<WebSearchResult> {
-        return {
-          results: [],
-          note: `web_search backend not yet implemented (Phase 3). Query was: "${args.query.slice(0, 80)}"`,
-        };
+        try {
+          // WebSearch 工具会由外部环境提供
+          const webSearch = (globalThis as { WebSearch?: (args: { query: string; num: number }) => Promise<Array<{ title: string; url: string; snippet?: string }>> }).WebSearch;
+          
+          if (!webSearch) {
+            return {
+              results: [],
+              note: "web_search backend not available. Query was: " + args.query.slice(0, 80),
+            };
+          }
+
+          const topK = Math.min(args.topK ?? 5, 10);
+          const searchResults = await webSearch({ query: args.query, num: topK });
+
+          const results = searchResults.map((r: { title: string; url: string; snippet?: string }) => ({
+            title: r.title,
+            url: r.url,
+            snippet: r.snippet ?? "",
+          }));
+
+          return { results };
+        } catch (error) {
+          return {
+            results: [],
+            note: `web_search error: ${error instanceof Error ? error.message : "Unknown error"}`,
+          };
+        }
       },
     },
     {

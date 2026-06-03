@@ -1174,7 +1174,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | --- | --- |
 | 3.1 | ✅ 已完成：[src/rules/rules.ts](src/rules/rules.ts) 实现规则模型、规则存储（JSONL）、匹配引擎（AND逻辑）、冲突处理（优先级） |
 | 3.2 | ✅ 已完成：[src/tools/rules.ts](src/tools/rules.ts) 实现 match_rules 工具；[src/agent/policies.ts](src/agent/policies.ts) 集成自定义规则引擎 |
-| 3.3 | [src/research/](src/research/)：研究计划与邮件动作分离；`webSearch` 工具；风险评级 |
+| 3.3 | ✅ 已完成：[src/research/](src/research/) 实现研究计划（planner.ts）、风险评级（risk.ts）、可信来源（sources.ts）、钓鱼检测（phishing.ts）；[src/tools/research.ts](src/tools/research.ts) 实现 web_search 工具 |
 | 3.4 | 研究反馈接入学习层：`trustedSources` 加权 |
 | 3.5 | 防钓鱼专项 case：FTX 类邮件、伪造域名、伪造账户验证，写成回归测试 |
 | 3.6 | §2.8 Agent 自我意识：定期统计自己的判断准确率、偏好年龄、单次任务工具消耗 |

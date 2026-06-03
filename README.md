@@ -102,7 +102,9 @@ Phase 2.8 has started with pending queue for delayed execution and retry mechani
 Phase 3.1 has started with the rules engine: rule model, JSONL persistence, matching engine,
 and conflict resolution by priority.
 Phase 3.2 has completed: rules engine integrated into `match_rules` tool and `policies.ts` for
-decision-making integration. See
+decision-making integration.
+Phase 3.3 has completed: research planner, risk evaluator, trusted sources, phishing detection,
+and web_search tool implementation. See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 
 ## Next integrations

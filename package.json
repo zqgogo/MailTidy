@@ -24,7 +24,8 @@
   "dependencies": {
     "@earendil-works/pi-agent-core": "^0.74.1",
     "@earendil-works/pi-ai": "^0.74.1",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "googleapis": "^173.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

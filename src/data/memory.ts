@@ -19,6 +19,8 @@ export interface SenderPreference {
   ignoredCount: number;
   learnedFrom?: string;
   learnedAt?: string;
+  createdAt?: string;
+  lastUsed?: string;
 }
 
 export interface PreferenceHistoryEntry {

@@ -108,7 +108,7 @@ and web_search tool implementation.
 Phase 3.4 has completed: research feedback integration into learning layer with trustedSources weighting.
 Phase 3.5 has completed: phishing regression tests for FTX-style attacks, fake domains, and credential harvesting.
 Phase 3.6 has completed: Agent self-awareness with accuracy tracking, preference age monitoring, and tool usage statistics.
-Phase 4.1-4.3 has completed: Gmail/Outlook connectors (read-only mode) with OAuth 2.0, and configuration management optimization.
+Phase 4.1-4.4 has completed: Gmail/Outlook connectors (read-only mode) with OAuth 2.0, configuration management optimization, and deployment solutions (launchd/systemd/cron/Docker/GitHub Actions).
 See
 [docs/agent-design.md §5.2](docs/agent-design.md) for the per-module status.
 

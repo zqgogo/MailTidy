@@ -1192,7 +1192,7 @@ Phase 0 流水线骨架已完整移植到 TypeScript：
 | 4.1 | ✅ 已完成：[src/integrations/email/gmail.ts](src/integrations/email/gmail.ts) 实现 Gmail 连接器（只读模式），支持 OAuth 2.0 认证 |
 | 4.2 | ✅ 已完成：[src/integrations/email/outlook.ts](src/integrations/email/outlook.ts) 实现 Outlook 连接器（只读模式），支持 Microsoft Graph API |
 | 4.3 | ✅ 已完成：[src/ops/config.ts](src/ops/config.ts) 扩展配置管理，支持邮箱连接器配置、自我意识配置 |
-| 4.4 | 本地/云端部署方案 |
+| 4.4 | ✅ 已完成：[src/ops/deploy.ts](src/ops/deploy.ts) 实现本地/云端部署方案，包括 macOS launchd、Linux systemd/cron、Windows Task Scheduler、Docker、Docker Compose、GitHub Actions |
 
 **Phase 4 验收**：真实邮箱跑一周，trace 可回放，用户标注分类正确率 ≥ 85%；至少跑通 5 条主动告知场景。
 

@@ -9,6 +9,7 @@
 
 import type { AgentMemory, SenderPreference } from "../data/memory.js";
 import type { LearningSignal } from "../data/learning.js";
+import type { StyleProfile } from "../data/models.js";
 import { promises as fs } from "node:fs";
 import path from "node:path";
 
@@ -94,24 +95,47 @@ const DEFAULT_OPTIONS: Required<SelfAwarenessOptions> = {
   stateDir: ".mailtidy",
 };
 
+interface DecisionEntry {
+  emailId: string;
+  sender: string;
+  action: string;
+  confidence: number;
+  timestamp: string;
+  outcome?: "confirmed" | "rejected" | "corrected";
+}
+
+interface ToolUsageEntry {
+  toolName: string;
+  durationMs: number;
+  success: boolean;
+  timestamp: string;
+}
+
+function createEmptyStyleProfile(): StyleProfile {
+  return {
+    tone: "",
+    language: "",
+    openingPatterns: [],
+    closingPatterns: [],
+    signature: "",
+    brevity: "",
+  };
+}
+
+function createEmptyMemory(): AgentMemory {
+  return {
+    senderPreferences: {},
+    actionPreferences: {},
+    styleProfile: createEmptyStyleProfile(),
+    subscriptionHistory: [],
+    preferenceHistory: [],
+  };
+}
+
 export class AgentSelfAwareness {
   private readonly options: Required<SelfAwarenessOptions>;
-  private decisionHistory: Array<{
-    emailId: string;
-    sender: string;
-    action: string;
-    confidence: number;
-    timestamp: string;
-    outcome?: "confirmed" | "rejected" | "corrected";
-  }> = [];
-
-  private toolUsageHistory: Array<{
-    toolName: string;
-    durationMs: number;
-    success: boolean;
-    timestamp: string;
-  }> = [];
-
+  private decisionHistory: DecisionEntry[] = [];
+  private toolUsageHistory: ToolUsageEntry[] = [];
   private readonly statePath: string;
 
   constructor(options: SelfAwarenessOptions = {}) {
@@ -124,8 +148,8 @@ export class AgentSelfAwareness {
     try {
       const raw = await fs.readFile(this.statePath, "utf-8");
       const state = JSON.parse(raw) as {
-        decisionHistory: typeof this.decisionHistory;
-        toolUsageHistory: typeof this.toolUsageHistory;
+        decisionHistory: DecisionEntry[];
+        toolUsageHistory: ToolUsageEntry[];
       };
       this.decisionHistory = state.decisionHistory || [];
       this.toolUsageHistory = state.toolUsageHistory || [];
@@ -265,13 +289,13 @@ export class AgentSelfAwareness {
         };
       }
 
-      byTool[usage.toolName].count++;
-      byTool[usage.toolName].totalTime += usage.durationMs;
-      byTool[usage.toolName].averageTime =
-        byTool[usage.toolName].totalTime / byTool[usage.toolName].count;
+      const toolStats = byTool[usage.toolName]!;
+      toolStats.count++;
+      toolStats.totalTime += usage.durationMs;
+      toolStats.averageTime = toolStats.totalTime / toolStats.count;
 
       if (!usage.success) {
-        byTool[usage.toolName].errors++;
+        toolStats.errors++;
       }
     }
 
@@ -425,14 +449,17 @@ export class AgentSelfAwareness {
     const corrected = recentDecisions.filter((d) => d.outcome === "corrected").length;
     const accuracy = recentDecisions.length > 0 ? (confirmed + corrected * 0.5) / recentDecisions.length : 0;
 
+    const emptyMemory = createEmptyMemory();
+    const prefStats = this.calculatePreferenceAgeStats(emptyMemory);
+
     return {
       totalDecisions: this.decisionHistory.length,
       accuracy: Math.round(accuracy * 100) / 100,
-      totalPreferences: this.calculatePreferenceAgeStats({ senderPreferences: {}, actionPreferences: {}, stylePreferences: {} }).totalPreferences,
-      averagePreferenceAgeDays: this.calculatePreferenceAgeStats({ senderPreferences: {}, actionPreferences: {}, stylePreferences: {} }).averageAgeDays,
+      totalPreferences: prefStats.totalPreferences,
+      averagePreferenceAgeDays: prefStats.averageAgeDays,
       totalToolCalls: this.toolUsageHistory.length,
       toolErrorRate: this.calculateToolUsageStats().errorRate,
-      healthStatus: this.assess({ senderPreferences: {}, actionPreferences: {}, stylePreferences: {} }).overallHealth,
+      healthStatus: this.assess(emptyMemory).overallHealth,
     };
   }
 }

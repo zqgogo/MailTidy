@@ -1,5 +1,5 @@
 /**
- * Outlook 连接器实现（Phase 4.4）
+ * Outlook 连接器实现（Phase 4.2）
  * 
  * 第一阶段：只读模式，写动作全部抛出异常
  * 支持 OAuth 2.0 认证，使用 Microsoft Graph API
@@ -22,7 +22,26 @@ const DEFAULT_SCOPES = [
   "https://graph.microsoft.com/Mail.Read",
 ];
 
-const READ_ONLY_ERROR = "Outlook connector is in read-only mode. Write operations are not permitted in Phase 4.4.";
+const READ_ONLY_ERROR = "Outlook connector is in read-only mode. Write operations are not permitted in Phase 4.2.";
+
+interface TokenData {
+  access_token: string;
+  expires_at?: number;
+  refresh_token?: string;
+}
+
+interface GraphResponse {
+  value?: Array<{
+    id: string;
+    from?: { emailAddress?: { address?: string } };
+    subject?: string;
+    bodyPreview?: string;
+    body?: { contentType?: string; content?: string };
+    receivedDateTime?: string;
+    hasAttachments?: boolean;
+    isRead?: boolean;
+  }>;
+}
 
 export class OutlookConnector implements EmailConnector {
   private readonly clientId: string;
@@ -47,7 +66,7 @@ export class OutlookConnector implements EmailConnector {
 
     try {
       const token = await fs.readFile(this.tokenPath, "utf-8");
-      const tokenData = JSON.parse(token);
+      const tokenData: TokenData = JSON.parse(token);
       this.accessToken = tokenData.access_token;
       this.tokenExpiresAt = tokenData.expires_at ?? 0;
     } catch {
@@ -63,7 +82,8 @@ export class OutlookConnector implements EmailConnector {
     const limit = options.limit ?? 50;
 
     try {
-      const endpoint = `https://graph.microsoft.com/v1.0/me/mailfolders/inbox/messages?$top=${limit}&$orderby=receivedDateTime desc&$filter=receivedDateTime ge ${this.formatDateTime(new Date(Date.now() - hours * 3600000))}`;
+      const startDate = new Date(Date.now() - hours * 3600000);
+      const endpoint = `https://graph.microsoft.com/v1.0/me/mailfolders/inbox/messages?$top=${limit}&$orderby=receivedDateTime desc&$filter=receivedDateTime ge ${this.formatDateTime(startDate)}`;
       const response = await fetch(endpoint, {
         headers: { Authorization: `Bearer ${this.accessToken}` },
       });
@@ -72,8 +92,8 @@ export class OutlookConnector implements EmailConnector {
         throw new Error(`Failed to fetch emails: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return (data.value ?? []).map((msg: any) => this.parseOutlookMessage(msg));
+      const data = await response.json() as GraphResponse;
+      return (data.value ?? []).map((msg) => this.parseOutlookMessage(msg));
     } catch (error) {
       throw new Error(`Failed to fetch recent emails: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
@@ -94,8 +114,8 @@ export class OutlookConnector implements EmailConnector {
         throw new Error(`Failed to search emails: ${response.statusText}`);
       }
 
-      const data = await response.json();
-      return (data.value ?? []).map((msg: any) => this.parseOutlookMessage(msg));
+      const data = await response.json() as GraphResponse;
+      return (data.value ?? []).map((msg) => this.parseOutlookMessage(msg));
     } catch (error) {
       throw new Error(`Failed to search emails: ${error instanceof Error ? error.message : "Unknown error"}`);
     }
@@ -116,7 +136,7 @@ export class OutlookConnector implements EmailConnector {
         return null;
       }
 
-      const message = await response.json();
+      const message = await response.json() as NonNullable<GraphResponse["value"]>[number];
       return this.parseOutlookMessage(message);
     } catch (error) {
       console.warn(`Failed to read email ${emailId}: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -124,27 +144,27 @@ export class OutlookConnector implements EmailConnector {
     }
   }
 
-  async archive(emailIds: string[]): Promise<void> {
+  async archive(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async label(emailIds: string[], label: string): Promise<void> {
+  async label(_emailIds: string[], _label: string): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async star(emailIds: string[]): Promise<void> {
+  async star(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async markRead(emailIds: string[]): Promise<void> {
+  async markRead(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async saveDraft(emailId: string, body: string): Promise<void> {
+  async saveDraft(_emailId: string, _body: string): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  private parseOutlookMessage(message: any): EmailMessage {
+  private parseOutlookMessage(message: NonNullable<GraphResponse["value"]>[number]): EmailMessage {
     return {
       id: message.id,
       sender: message.from?.emailAddress?.address ?? "",
@@ -158,7 +178,7 @@ export class OutlookConnector implements EmailConnector {
     };
   }
 
-  private getBodyContent(message: any): string {
+  private getBodyContent(message: NonNullable<GraphResponse["value"]>[number]): string {
     if (message.body?.contentType === "text") {
       return message.body.content ?? "";
     }
@@ -183,6 +203,7 @@ export class OutlookConnector implements EmailConnector {
 
   private async refreshToken(): Promise<void> {
     try {
+      const refreshToken = await this.getRefreshToken();
       const response = await fetch("https://login.microsoftonline.com/common/oauth2/v2.0/token", {
         method: "POST",
         headers: { "Content-Type": "application/x-www-form-urlencoded" },
@@ -190,7 +211,7 @@ export class OutlookConnector implements EmailConnector {
           client_id: this.clientId,
           client_secret: this.clientSecret,
           grant_type: "refresh_token",
-          refresh_token: await this.getRefreshToken(),
+          refresh_token: refreshToken,
         }),
       });
 
@@ -198,14 +219,14 @@ export class OutlookConnector implements EmailConnector {
         throw new Error("Failed to refresh token");
       }
 
-      const data = await response.json();
+      const data = await response.json() as TokenData;
       this.accessToken = data.access_token;
-      this.tokenExpiresAt = Date.now() + (data.expires_in * 1000);
+      this.tokenExpiresAt = Date.now() + (data.expires_at ?? 3600);
 
       await fs.writeFile(this.tokenPath, JSON.stringify({
         access_token: this.accessToken,
         expires_at: this.tokenExpiresAt,
-        refresh_token: data.refresh_token,
+        refresh_token: data.refresh_token ?? refreshToken,
       }), "utf-8");
     } catch (error) {
       throw new Error(`Failed to refresh token: ${error instanceof Error ? error.message : "Unknown error"}`);
@@ -214,7 +235,7 @@ export class OutlookConnector implements EmailConnector {
 
   private async getRefreshToken(): Promise<string> {
     const token = await fs.readFile(this.tokenPath, "utf-8");
-    const tokenData = JSON.parse(token);
+    const tokenData: TokenData = JSON.parse(token);
     return tokenData.refresh_token ?? "";
   }
 

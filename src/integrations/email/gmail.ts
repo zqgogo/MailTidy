@@ -3,6 +3,8 @@
  * 
  * 第一阶段：只读模式，写动作全部抛出异常
  * 支持 OAuth 2.0 认证，使用 Google API Client
+ * 
+ * 注意：需要安装 googleapis 包：npm install googleapis
  */
 
 import { promises as fs } from "node:fs";
@@ -27,7 +29,9 @@ export class GmailConnector implements EmailConnector {
   private readonly credentialsPath: string;
   private readonly tokenPath: string;
   private readonly scopes: string[];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private authClient: any = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private gmail: any = null;
 
   constructor(options: GmailConnectorOptions = {}) {
@@ -39,10 +43,14 @@ export class GmailConnector implements EmailConnector {
 
   async initialize(): Promise<void> {
     try {
-      const { google } = await import("googleapis");
+      // Dynamic import to handle optional dependency
+      const googleapis = await import("googleapis");
+      const google = googleapis.google;
+
+      const credentials = await this.readCredentials();
       const auth = new google.auth.OAuth2(
-        await this.getClientId(),
-        await this.getClientSecret(),
+        credentials.installed?.client_id ?? "",
+        credentials.installed?.client_secret ?? "",
         "http://localhost:3000/oauth2callback"
       );
 
@@ -60,17 +68,7 @@ export class GmailConnector implements EmailConnector {
     }
   }
 
-  private async getClientId(): Promise<string> {
-    const credentials = await this.readCredentials();
-    return credentials.installed?.client_id ?? "";
-  }
-
-  private async getClientSecret(): Promise<string> {
-    const credentials = await this.readCredentials();
-    return credentials.installed?.client_secret ?? "";
-  }
-
-  private async readCredentials(): Promise<any> {
+  private async readCredentials(): Promise<{ installed?: { client_id?: string; client_secret?: string } }> {
     try {
       const raw = await fs.readFile(this.credentialsPath, "utf-8");
       return JSON.parse(raw);
@@ -79,8 +77,8 @@ export class GmailConnector implements EmailConnector {
     }
   }
 
-  private async generateAuthUrl(auth: any): Promise<void> {
-    const url = auth.generateAuthUrl({
+  private async generateAuthUrl(auth: unknown): Promise<void> {
+    const url = (auth as { generateAuthUrl: (config: unknown) => string }).generateAuthUrl({
       access_type: "offline",
       scope: this.scopes,
     });
@@ -92,14 +90,11 @@ export class GmailConnector implements EmailConnector {
   async fetchRecent(options: FetchRecentOptions = {}): Promise<EmailMessage[]> {
     await this.ensureInitialized();
 
-    const hours = options.hours ?? 24;
     const limit = options.limit ?? 50;
     const unreadOnly = options.unreadOnly ?? false;
 
     try {
       const query = unreadOnly ? "is:unread" : "";
-      const startTime = new Date();
-      startTime.setHours(startTime.getHours() - hours);
 
       const res = await this.gmail.users.messages.list({
         userId: "me",
@@ -108,11 +103,11 @@ export class GmailConnector implements EmailConnector {
         labelIds: ["INBOX"],
       });
 
-      const messages = res.data.messages ?? [];
+      const messages = (res.data as { messages?: Array<{ id: string }> }).messages ?? [];
       const emailMessages: EmailMessage[] = [];
 
       for (const msg of messages) {
-        const email = await this.readById(msg.id!);
+        const email = await this.readById(msg.id);
         if (email) {
           emailMessages.push(email);
         }
@@ -137,11 +132,11 @@ export class GmailConnector implements EmailConnector {
         maxResults: 50,
       });
 
-      const messages = res.data.messages ?? [];
+      const messages = (res.data as { messages?: Array<{ id: string }> }).messages ?? [];
       const emailMessages: EmailMessage[] = [];
 
       for (const msg of messages) {
-        const email = await this.readById(msg.id!);
+        const email = await this.readById(msg.id);
         if (email) {
           emailMessages.push(email);
         }
@@ -173,30 +168,31 @@ export class GmailConnector implements EmailConnector {
     }
   }
 
-  async archive(emailIds: string[]): Promise<void> {
+  async archive(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async label(emailIds: string[], label: string): Promise<void> {
+  async label(_emailIds: string[], _label: string): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async star(emailIds: string[]): Promise<void> {
+  async star(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async markRead(emailIds: string[]): Promise<void> {
+  async markRead(_emailIds: string[]): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
-  async saveDraft(emailId: string, body: string): Promise<void> {
+  async saveDraft(_emailId: string, _body: string): Promise<void> {
     throw new Error(READ_ONLY_ERROR);
   }
 
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   private parseGmailMessage(message: any): EmailMessage {
     const headers = message.payload?.headers ?? [];
     const getHeader = (name: string): string => {
-      const header = headers.find((h: any) => h.name.toLowerCase() === name.toLowerCase());
+      const header = headers.find((h: { name: string; value: string }) => h.name.toLowerCase() === name.toLowerCase());
       return header?.value ?? "";
     };
 
@@ -208,19 +204,19 @@ export class GmailConnector implements EmailConnector {
     if (message.payload?.body?.data) {
       body = Buffer.from(message.payload.body.data, "base64").toString("utf-8");
     } else if (message.payload?.parts) {
-      const textPart = message.payload.parts.find((p: any) => p.mimeType === "text/plain");
+      const textPart = message.payload.parts.find((p: { mimeType: string }) => p.mimeType === "text/plain");
       if (textPart?.body?.data) {
         body = Buffer.from(textPart.body.data, "base64").toString("utf-8");
       }
     }
 
     const snippet = message.snippet ?? "";
-    const hasAttachment = message.payload?.parts?.some((p: any) => p.filename) ?? false;
+    const hasAttachment = message.payload?.parts?.some((p: { filename: string }) => p.filename) ?? false;
     const labels = message.labelIds ?? [];
     const unread = labels.includes("UNREAD");
 
     return {
-      id: message.id,
+      id: message.id ?? "",
       sender: this.extractEmailFromHeader(sender),
       subject: subject,
       snippet: snippet,
@@ -234,7 +230,7 @@ export class GmailConnector implements EmailConnector {
 
   private extractEmailFromHeader(header: string): string {
     const match = header.match(/<([^>]+)>/);
-    return match ? match[1] : header;
+    return match ? (match[1] ?? header) : header;
   }
 
   private async ensureInitialized(): Promise<void> {

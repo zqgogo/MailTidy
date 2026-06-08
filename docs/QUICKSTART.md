@@ -267,9 +267,93 @@ MailTidy/
 
 ## 下一步
 
-1. 配置邮件提供商（Gmail/Outlook）
-2. 设置 OAuth 认证
+1. 配置邮件提供商（Gmail/Outlook/QQ邮箱）
+2. 设置认证信息
 3. 运行真实邮件清理
 4. 查看性能报告
 
 详细配置请参考 [docs/agent-design.md](docs/agent-design.md)
+
+---
+
+## 接入真实邮箱（QQ邮箱/网易邮箱等）
+
+MailTidy 支持通过 IMAP 协议接入任意邮箱服务，包括 QQ 邮箱、网易邮箱等。
+
+### 1. 准备工作
+
+#### QQ 邮箱配置
+
+1. 登录 [QQ 邮箱](https://mail.qq.com)
+2. 点击右上角「设置」→「账户」
+3. 找到「POP3/IMAP/SMTP/Exchange/CardDAV/CalDAV服务」
+4. 开启「IMAP/SMTP服务」
+5. 点击「生成授权码」，按提示完成验证
+6. 保存生成的授权码（非登录密码）
+
+#### 网易邮箱配置
+
+1. 登录 [网易邮箱](https://mail.163.com)
+2. 点击右上角「设置」→「POP3/SMTP/IMAP」
+3. 开启「IMAP/SMTP服务」
+4. 设置授权码
+
+### 2. 配置文件
+
+编辑 `mailtidy.config.json`：
+
+```json
+{
+  "llm": {
+    "provider": "heuristic"
+  },
+  "email": {
+    "provider": "imap",
+    "imap": {
+      "host": "imap.qq.com",
+      "port": 993,
+      "secure": true,
+      "user": "your-qq-number@qq.com",
+      "password": "your-authorization-code"
+    }
+  },
+  "stateDir": ".mailtidy",
+  "dryRun": true
+}
+```
+
+### 支持的邮箱服务商
+
+| 邮箱 | IMAP 服务器 | 端口 | SSL |
+|------|------------|------|-----|
+| QQ邮箱 | imap.qq.com | 993 | 是 |
+| 网易163 | imap.163.com | 993 | 是 |
+| 网易126 | imap.126.com | 993 | 是 |
+| Gmail | imap.gmail.com | 993 | 是 |
+| Outlook | imap-mail.outlook.com | 993 | 是 |
+
+### 3. 测试连接
+
+```bash
+# 先使用 dry-run 模式测试
+node dist/cli.js run-cleanup --dry-run
+
+# 如果连接成功，会显示获取到的邮件数量
+```
+
+### 4. 注意事项
+
+1. **首次运行建议使用 `--dry-run`**：不会实际修改邮箱，仅模拟执行
+2. **授权码不是密码**：务必使用生成的授权码，而非邮箱登录密码
+3. **安全提醒**：配置文件包含敏感信息，请妥善保管
+4. **备份建议**：在首次执行清理前，建议备份重要邮件
+
+### 5. 切换到真实模式
+
+```bash
+# 修改配置文件，关闭 dry-run
+node dist/cli.js config --set dryRun=false
+
+# 或直接运行时指定
+node dist/cli.js run-cleanup --dry-run=false
+```

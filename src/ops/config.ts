@@ -9,7 +9,7 @@ export interface LLMConfig {
   baseUrl?: string;
 }
 
-export type EmailProviderName = "mock" | "gmail" | "outlook";
+export type EmailProviderName = "mock" | "gmail" | "outlook" | "imap";
 
 export interface GmailConnectorConfig {
   credentialsPath?: string;
@@ -24,10 +24,19 @@ export interface OutlookConnectorConfig {
   scopes?: string[];
 }
 
+export interface ImapConnectorConfig {
+  host: string;
+  port?: number;
+  secure?: boolean;
+  user: string;
+  password: string;
+}
+
 export interface EmailConfig {
   provider: EmailProviderName;
   gmail?: GmailConnectorConfig;
   outlook?: OutlookConnectorConfig;
+  imap?: ImapConnectorConfig;
 }
 
 export interface SelfAwarenessConfig {

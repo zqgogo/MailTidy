@@ -597,3 +597,259 @@ const memoryEngine = new MemoryEngine(new QdrantStore({ url: "http://localhost:6
 ```
 
 业务代码无需修改。
+
+---
+
+# 16. API 参考文档
+
+## 16.1 MemoryEngine
+
+### 构造函数
+
+```typescript
+new MemoryEngine(databasePath: string)
+```
+
+**参数**：
+- `databasePath`: SQLite 数据库文件路径
+
+**示例**：
+```typescript
+const memoryEngine = new MemoryEngine("./storage/mailtidy.db");
+```
+
+### addMemory
+
+```typescript
+async addMemory(
+  text: string,
+  memoryType: MemoryType,
+  metadata?: Record<string, unknown>,
+  importance?: number
+): Promise<string>
+```
+
+**参数**：
+- `text`: 记忆内容（经验总结）
+- `memoryType`: 记忆类型（PREFERENCE / DECISION / EMAIL_SUMMARY）
+- `metadata`: 元数据（发件人、主题、操作等）
+- `importance`: 重要性分数（0-1，默认 0.5）
+
+**返回**：记忆 ID
+
+**示例**：
+```typescript
+const memoryId = await memoryEngine.addMemory(
+  "用户倾向归档 GitHub 通知邮件",
+  MemoryType.PREFERENCE,
+  { sender: "github.com", action: "archive" },
+  0.8
+);
+```
+
+### search
+
+```typescript
+async search(options: SearchOptions): Promise<MemorySearchResult[]>
+```
+
+**参数**：
+```typescript
+interface SearchOptions {
+  query: string;              // 搜索查询
+  memoryTypes?: MemoryType[]; // 过滤记忆类型
+  topK?: number;              // 返回数量（默认 5）
+  minScore?: number;          // 最小相似度（默认 0.5）
+}
+```
+
+**返回**：匹配的记忆数组
+
+**示例**：
+```typescript
+const results = await memoryEngine.search({
+  query: "GitHub 通知邮件",
+  memoryTypes: [MemoryType.PREFERENCE, MemoryType.DECISION],
+  topK: 3,
+  minScore: 0.6
+});
+
+// 结果示例
+[
+  {
+    id: "mem-123",
+    memoryType: "preference",
+    text: "用户倾向归档 GitHub 通知邮件",
+    metadata: { sender: "github.com", action: "archive" },
+    importance: 0.8,
+    score: 0.92,
+    createdAt: "2024-01-15T10:30:00Z"
+  }
+]
+```
+
+### learn
+
+```typescript
+async learn(email: EmailContext, userAction: string): Promise<string>
+```
+
+**参数**：
+```typescript
+interface EmailContext {
+  sender?: string;   // 发件人
+  subject?: string;  // 邮件主题
+  content?: string;  // 邮件内容
+}
+```
+
+**返回**：新创建的记忆 ID
+
+**示例**：
+```typescript
+const memoryId = await memoryEngine.learn({
+  sender: "notifications@github.com",
+  subject: "GitHub Actions Update"
+}, "archive");
+
+// 内部生成的经验："用户倾向归档来自 github.com 的邮件"
+```
+
+---
+
+# 17. 实际应用示例
+
+## 17.1 邮件处理流程集成
+
+```typescript
+// 收到新邮件
+const email = {
+  sender: "notifications@github.com",
+  subject: "GitHub Actions Changelog",
+  content: "GitHub Actions has been updated..."
+};
+
+// 1. 生成检索查询
+const query = `${email.sender} ${email.subject}`;
+
+// 2. 检索历史经验
+const experiences = await memoryEngine.search({
+  query,
+  memoryTypes: [MemoryType.PREFERENCE, MemoryType.DECISION],
+  topK: 3
+});
+
+// 3. 根据经验决策
+if (experiences.length > 0) {
+  const bestMatch = experiences[0];
+  console.log(`建议操作: ${bestMatch.metadata.action}`);
+  console.log(`理由: ${bestMatch.text}`);
+}
+
+// 4. 用户确认后学习
+await memoryEngine.learn(email, "archive");
+```
+
+## 17.2 偏好管理
+
+```typescript
+// 添加偏好
+await memoryEngine.addMemory(
+  "用户认为 AWS 账单邮件很重要",
+  MemoryType.PREFERENCE,
+  { sender: "aws.amazon.com", action: "mark_important" },
+  0.9
+);
+
+// 查询所有偏好
+const preferences = await memoryEngine.search({
+  query: "偏好",
+  memoryTypes: [MemoryType.PREFERENCE]
+});
+```
+
+---
+
+# 18. 配置与部署
+
+## 18.1 数据库配置
+
+```typescript
+// 默认配置
+const memoryEngine = new MemoryEngine("./storage/mailtidy.db");
+
+// 自定义路径
+const memoryEngine = new MemoryEngine("/data/mailtidy/mailtidy.db");
+```
+
+## 18.2 扩展配置
+
+```typescript
+// 未来扩展：自定义 Embedding Provider
+const embeddingProvider = new OpenAIEmbedding();
+const memoryStore = new MemoryStore("./storage/mailtidy.db", embeddingProvider);
+const memoryEngine = new MemoryEngine(memoryStore);
+```
+
+## 18.3 内存管理
+
+```typescript
+// 使用完毕后关闭连接
+memoryEngine.close();
+```
+
+---
+
+# 19. 性能优化
+
+## 19.1 批量操作
+
+```typescript
+// 批量添加记忆
+const memories = [
+  { text: "记忆1", type: MemoryType.DECISION },
+  { text: "记忆2", type: MemoryType.PREFERENCE },
+];
+
+for (const mem of memories) {
+  await memoryEngine.addMemory(mem.text, mem.type);
+}
+```
+
+## 19.2 查询优化
+
+- 使用 `memoryTypes` 过滤减少搜索范围
+- 设置合理的 `minScore` 阈值
+- 限制 `topK` 返回数量
+
+---
+
+# 20. 安全与隐私
+
+## 20.1 数据存储
+
+- 所有数据存储在本地 SQLite 数据库
+- 向量数据加密存储（可选）
+- 支持数据库加密扩展
+
+## 20.2 权限管理
+
+- 文件系统级别的访问控制
+- 支持 SQLite 加密扩展
+
+---
+
+# 附录：术语表
+
+| 术语 | 说明 |
+|------|------|
+| Memory Engine | 记忆引擎，对外唯一入口 |
+| Memory Store | 向量存储实现 |
+| Embedding | 文本向量化表示 |
+| Vector Store | 向量数据库 |
+| RAG | 检索增强生成 |
+| BGE-M3 | 开源 Embedding 模型 |
+| sqlite-vec | SQLite 向量扩展 |
+| Preference | 用户偏好 |
+| Decision | 历史决策经验 |
+| Email Summary | 邮件摘要 |

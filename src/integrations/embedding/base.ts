@@ -1,4 +1,4 @@
-export type EmbeddingProviderType = "heuristic" | "openai" | "local";
+export type EmbeddingProviderType = "heuristic" | "openai" | "local" | "tfidf";
 
 export interface EmbeddingProvider {
   readonly provider: EmbeddingProviderType;

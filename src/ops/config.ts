@@ -9,6 +9,18 @@ export interface LLMConfig {
   baseUrl?: string;
 }
 
+export type EmbeddingProviderName = "heuristic" | "openai" | "local";
+
+export interface EmbeddingConfig {
+  provider: EmbeddingProviderName;
+  model?: string;
+  apiKey?: string;
+  baseUrl?: string;
+  dimensions?: number;
+  minScore?: number;
+  maxResults?: number;
+}
+
 export type EmailProviderName = "mock" | "gmail" | "outlook" | "imap";
 
 export interface GmailConnectorConfig {
@@ -49,6 +61,7 @@ export interface SelfAwarenessConfig {
 export interface MailTidyConfig {
   llm: LLMConfig;
   email: EmailConfig;
+  embedding?: EmbeddingConfig;
   selfAwareness?: SelfAwarenessConfig;
   stateDir?: string;
   dryRun?: boolean;
@@ -64,6 +77,13 @@ export interface ConfigOverrides {
 export const defaultConfig: MailTidyConfig = {
   llm: { provider: "heuristic" },
   email: { provider: "mock" },
+  embedding: {
+    provider: "heuristic",
+    model: "heuristic",
+    minScore: 0.72,
+    maxResults: 8,
+    dimensions: 384,
+  },
   selfAwareness: {
     enabled: true,
     maxHistorySize: 1000,
@@ -113,6 +133,23 @@ export function parseEmailProvider(value: string): EmailProviderName {
   throw new Error(`Invalid email provider "${value}". Expected mock, gmail, or outlook.`);
 }
 
+export function parseEmbeddingProvider(value: string): EmbeddingProviderName {
+  if (value === "heuristic" || value === "openai" || value === "local") return value;
+  throw new Error(`Invalid embedding provider "${value}". Expected heuristic, openai, or local.`);
+}
+
+export function resolveEmbeddingConfig(config: MailTidyConfig): EmbeddingConfig {
+  return {
+    provider: config.embedding?.provider ?? defaultConfig.embedding!.provider,
+    model: config.embedding?.model ?? defaultConfig.embedding!.model,
+    apiKey: config.embedding?.apiKey,
+    baseUrl: config.embedding?.baseUrl,
+    dimensions: config.embedding?.dimensions ?? defaultConfig.embedding!.dimensions,
+    minScore: config.embedding?.minScore ?? defaultConfig.embedding!.minScore,
+    maxResults: config.embedding?.maxResults ?? defaultConfig.embedding!.maxResults,
+  };
+}
+
 export function getStateDir(config: MailTidyConfig): string {
   return config.stateDir ?? defaultConfig.stateDir!;
 }
@@ -129,6 +166,15 @@ function normalizeConfig(input: Partial<MailTidyConfig>): MailTidyConfig {
       provider: input.email?.provider ? parseEmailProvider(input.email.provider) : defaultConfig.email.provider,
       gmail: input.email?.gmail,
       outlook: input.email?.outlook,
+    },
+    embedding: {
+      provider: input.embedding?.provider ? parseEmbeddingProvider(input.embedding.provider) : defaultConfig.embedding!.provider,
+      model: input.embedding?.model ?? defaultConfig.embedding!.model,
+      apiKey: input.embedding?.apiKey,
+      baseUrl: input.embedding?.baseUrl,
+      dimensions: input.embedding?.dimensions ?? defaultConfig.embedding!.dimensions,
+      minScore: input.embedding?.minScore ?? defaultConfig.embedding!.minScore,
+      maxResults: input.embedding?.maxResults ?? defaultConfig.embedding!.maxResults,
     },
     selfAwareness: {
       enabled: input.selfAwareness?.enabled ?? defaultConfig.selfAwareness?.enabled,

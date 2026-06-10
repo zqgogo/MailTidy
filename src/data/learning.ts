@@ -5,10 +5,13 @@
  *   - 同步学习信号：ask_user 回调、apply_action 后写决策日志
  *   - 异步学习提议器：扫近 N 天决策日志，候选偏好作为开场提问
  *   - 学习安全边界：单次反馈影响有上限；危险偏好必须 raise 而不是写入
+ *   - Phase V2: 所有偏好写入必须通过 PreferenceRepository，确保可审计
  */
 
 import type { AgentMemory, SenderPreference } from "./memory.js";
 import type { EmailJudgment, EmailMessage, ExecutionResult } from "./models.js";
+import { PreferenceRepository } from "./preferences.js";
+import type { Database } from "./database.js";
 
 export interface LearningSignal {
   type: "user_confirmation" | "user_rejection" | "user_correction" | "action_executed" | "action_skipped" | "research_feedback" | "domain_verified" | "phishing_detected";
@@ -177,6 +180,8 @@ export class LearningEngine {
   /**
    * 应用更新到内存，返回是否成功。
    * 危险偏好（requiresConfirmation=true）必须先确认才能应用。
+   * 
+   * @deprecated Use applyUpdateToRepository instead for V2
    */
   applyUpdate(update: PreferenceUpdate, memory: AgentMemory, force: boolean = false): boolean {
     if (update.isDangerous) {
@@ -200,6 +205,60 @@ export class LearningEngine {
     }
 
     return true;
+  }
+
+  /**
+   * V2: 通过 PreferenceRepository 应用更新，确保可审计。
+   * 所有偏好写入都通过此方法，自动记录 history。
+   */
+  async applyUpdateToRepository(
+    update: PreferenceUpdate,
+    db: Database,
+    taskId?: string,
+    emailId?: string
+  ): Promise<boolean> {
+    if (update.isDangerous) {
+      return false;
+    }
+
+    if (update.requiresConfirmation) {
+      return false;
+    }
+
+    const preferenceRepo = new PreferenceRepository(db);
+    const scope = this.getScopeFromKind(update.kind);
+
+    try {
+      await preferenceRepo.upsertPreference({
+        scope,
+        key: update.kind === "sender" ? update.key.toLowerCase() : update.key,
+        value: update.kind === "sender" 
+          ? (update.value as SenderPreference) 
+          : { importanceDelta: 0, ignoredCount: 0, preferredAction: String(update.value) },
+        confidence: update.confidence,
+        learnedFrom: update.learnedFrom,
+        learnedAt: update.learnedAt,
+        reason: update.reason,
+        taskId,
+        emailId,
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  private getScopeFromKind(kind: PreferenceUpdate["kind"]): "sender" | "action" | "style" | "category" | "domain" | "global" {
+    switch (kind) {
+      case "sender":
+        return "sender";
+      case "action":
+        return "action";
+      case "style":
+        return "style";
+      default:
+        return "global";
+    }
   }
 
   /**

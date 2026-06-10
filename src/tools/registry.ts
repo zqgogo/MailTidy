@@ -43,7 +43,7 @@ export function createMailTidyTools(deps: ToolRegistryDeps): AnyToolDefinition[]
     ...createActionTools(deps.connector),
     ...createResearchTools(),
   ];
-  if (deps.memory) tools.push(...createMemoryTools(deps.memory));
+  if (deps.memory) tools.push(...createMemoryTools({ memory: deps.memory }));
   if (deps.prompter) tools.push(...createUserTools(deps.prompter));
   return tools;
 }

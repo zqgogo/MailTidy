@@ -3,14 +3,16 @@
  *
  * Phase 2.1: 学习层基于 ask_user 回调和 apply_action 后的决策日志向这里写偏好
  * Phase 2.6: 偏好加 learnedFrom/learnedAt 元数据；支持一键回滚
+ * Phase V2: SQLite 作为权威数据层，JSON 只做配置和向后兼容。
  *
- * 当前实现：本地 JSON。生产版应换成 SQLite + SQLCipher 加密。
  * `.mailtidy/memory.json` 已在 .gitignore 中排除。
  */
 
 import { promises as fs } from "node:fs";
 import path from "node:path";
 import { type StyleProfile, defaultStyleProfile } from "./models.js";
+import type { Database } from "./database.js";
+import { PreferenceRepository } from "./preferences.js";
 
 export interface SenderPreference {
   category?: string;
@@ -196,4 +198,45 @@ export class JsonMemoryStore {
 export function createMemoryStore(stateDir: string = ".mailtidy"): JsonMemoryStore {
   const filePath = path.join(stateDir, "memory.json");
   return new JsonMemoryStore(filePath);
+}
+
+export async function loadAgentMemoryFromSQLite(db: Database): Promise<AgentMemory> {
+  const preferenceRepo = new PreferenceRepository(db);
+  const preferences = await preferenceRepo.getAllActive();
+
+  const senderPreferences: Record<string, SenderPreference> = {};
+  const actionPreferences: Record<string, string> = {};
+
+  for (const pref of preferences) {
+    const value = JSON.parse(pref.value_json) as SenderPreference;
+    
+    if (pref.scope === "sender") {
+      senderPreferences[pref.key] = {
+        ...value,
+        learnedFrom: pref.learned_from,
+        learnedAt: pref.learned_at,
+      };
+    } else if (pref.scope === "action") {
+      actionPreferences[pref.key] = value.preferredAction ?? "confirm";
+    }
+  }
+
+  const historyRecords = await preferenceRepo.getRecentHistory(1000);
+  const preferenceHistory: PreferenceHistoryEntry[] = historyRecords.map((record) => ({
+    id: record.id,
+    timestamp: record.created_at,
+    sender: record.preference_id,
+    previousPreference: record.previous_json ? JSON.parse(record.previous_json) : undefined,
+    newPreference: JSON.parse(record.next_json),
+    reason: record.reason,
+    actionType: record.action as PreferenceHistoryEntry["actionType"],
+  }));
+
+  return {
+    senderPreferences,
+    actionPreferences,
+    styleProfile: defaultStyleProfile(),
+    subscriptionHistory: [],
+    preferenceHistory,
+  };
 }

@@ -47,6 +47,10 @@ import { suggestInvestigations } from "./deepThink.js";
 import { exitFailed, exitInterrupted, exitOk, type ExitDecision } from "./exits.js";
 import { runMailTidyPiAgent } from "./piRunner.js";
 import { createTraceEvent, TraceStore } from "./trace.js";
+import type { Database } from "../data/database.js";
+import type { MemoryIndex } from "../data/vector-index.js";
+import { HeuristicEmbeddingProvider } from "../integrations/embedding/heuristic.js";
+import { SimpleMemoryIndex } from "../data/vector-index.js";
 
 export interface AgentLoopDeps {
   router: LLMRouter;
@@ -61,6 +65,10 @@ export interface AgentLoopDeps {
   stateDir?: string;
   decisionLogs?: DecisionLogStore;
   learningEngine?: LearningEngine;
+  /** Phase V2: SQLite database for authoritative data layer */
+  db?: Database;
+  /** Phase V2: Memory index for semantic recall */
+  memoryIndex?: MemoryIndex;
 }
 
 export interface RunAgentLoopOptions {
@@ -178,7 +186,10 @@ export async function runAgentLoop(
 
     record.progress.phase = "plan";
     plan = policy.buildPlan(sop, judgments, memory);
-    plan.investigationSuggestions = suggestInvestigations(messages, judgments, memory);
+    // Phase V2: Pass memoryIndex for semantic recall suggestions
+    plan.investigationSuggestions = await suggestInvestigations(messages, judgments, memory, {
+      memoryIndex: deps.memoryIndex,
+    });
     budget.steps += 1;
     await checkpoint(
       deps,

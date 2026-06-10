@@ -2,22 +2,16 @@
 /**
  * MailTidy CLI 入口。
  *
- * 当前阶段（Phase 0 + 恢复层骨架）：
- *   - `run-cleanup --demo` 等 4 条子命令走 LegacyMailTidyAgent（流水线 SOP）。
- *   - 启动时跑 `scanInterrupted()`：把上次未收尾的任务列出来，让用户选
- *     [r] 重跑 / [c] 续跑 / [s] 跳过 / [d] 删除记录。
- *     —— 当前"续跑"是占位（Phase 1 主循环上来后真正接 agentLoopContinue）。
- *   - SIGINT 收到后调 abortCurrentTask()：把当前任务标记为 interrupted，
- *     写盘 checkpoint 后再退出。
- *
- * 不强制 --demo 是为了让 SIGINT / 恢复扫描的开关单独可测；但实际 SOP 调用
- * 仍要求 --demo，避免误以为在动真邮箱。
+ * 当前阶段（Phase V2）：
+ *   - SQLite 作为权威数据层
+ *   - RAG 语义记忆系统
+ *   - 可审计、可回滚的学习系统
  */
 
 import { Command } from "commander";
 import path from "node:path";
 import { fauxAssistantMessage, registerFauxProvider } from "@earendil-works/pi-ai";
-import { JsonMemoryStore, getRecentHistory, rollbackToHistoryEntry, getHistoryBySender } from "../data/memory.js";
+import { JsonMemoryStore, getRecentHistory, rollbackToHistoryEntry, getHistoryBySender, loadAgentMemoryFromSQLite } from "../data/memory.js";
 import { ReportStore } from "../data/reports.js";
 import { JsonTaskStore, type TaskRecord } from "../data/tasks.js";
 import { CheckpointStore, parseRecoveryChoice, formatRecoveryPrompt } from "../agent/recovery.js";
@@ -35,6 +29,12 @@ import { LLMRouter } from "../llm/router.js";
 import { loadMailTidyConfig, resolveLLMConfig, type LLMProviderName } from "../ops/config.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
+import { createDatabase, getDefaultDatabasePath } from "../data/database.js";
+import { PreferenceRepository } from "../data/preferences.js";
+import { migrateFromJson, checkMigrationNeeded } from "../data/migration.js";
+import { MemoryItemGenerator } from "../data/memory-items-generator.js";
+import { HeuristicEmbeddingProvider } from "../integrations/embedding/heuristic.js";
+import { SimpleMemoryIndex } from "../data/vector-index.js";
 
 interface RuntimePaths {
   root: string;
@@ -439,6 +439,158 @@ async function main(): Promise<void> {
           console.log(`  ${time}: ${entry.actionType} - ${entry.reason ?? "no reason"}`);
         }
       }
+    });
+
+  const dbCommand = program
+    .command("db")
+    .description("Manage the SQLite database");
+
+  dbCommand
+    .command("migrate")
+    .description("Run database migrations")
+    .action(async () => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      console.log(`Database migrated to version ${await db.getCurrentVersion()}`);
+      await db.close();
+    });
+
+  dbCommand
+    .command("status")
+    .description("Check database status and version")
+    .action(async () => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      const version = await db.getCurrentVersion();
+      const prefCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM preferences");
+      const logCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM decision_logs");
+      const memoryItemCount = await db.get<{ count: number }>("SELECT COUNT(*) as count FROM memory_items");
+      
+      console.log(`Database Version: ${version}`);
+      console.log(`Preferences: ${prefCount?.count ?? 0}`);
+      console.log(`Decision Logs: ${logCount?.count ?? 0}`);
+      console.log(`Memory Items: ${memoryItemCount?.count ?? 0}`);
+      
+      await db.close();
+    });
+
+  dbCommand
+    .command("migrate-from-json")
+    .description("Migrate data from memory.json to SQLite")
+    .action(async () => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      
+      const result = await migrateFromJson(db, paths.memory);
+      
+      console.log("Migration Results:");
+      console.log(`  Preferences migrated: ${result.migratedPreferences}`);
+      console.log(`  Action Preferences migrated: ${result.migratedActionPreferences}`);
+      console.log(`  Style Profile migrated: ${result.migratedStyleProfile}`);
+      console.log(`  Subscriptions migrated: ${result.migratedSubscriptions}`);
+      console.log(`  History entries migrated: ${result.migratedHistory}`);
+      
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const error of result.errors) {
+          console.log(`  - ${error}`);
+        }
+      }
+      
+      await db.close();
+    });
+
+  memoryCommand
+    .command("rebuild-index")
+    .description("Rebuild the semantic memory index from memory items")
+    .action(async () => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      
+      const generator = new MemoryItemGenerator({ db });
+      const result = await generator.rebuildAll();
+      
+      console.log(`Generated ${result.generated} memory items`);
+      
+      if (result.errors.length > 0) {
+        console.log("\nErrors:");
+        for (const error of result.errors) {
+          console.log(`  - ${error}`);
+        }
+      }
+      
+      const embeddingProvider = new HeuristicEmbeddingProvider();
+      const memoryIndex = new SimpleMemoryIndex(db, embeddingProvider);
+      await memoryIndex.rebuild();
+      
+      console.log("\nSemantic memory index rebuilt");
+      await db.close();
+    });
+
+  memoryCommand
+    .command("forget")
+    .description("Forget a sender's preferences")
+    .argument("<sender>", "Sender email address to forget")
+    .action(async (sender) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      
+      const preferenceRepo = new PreferenceRepository(db);
+      const pref = await preferenceRepo.getByScopeAndKey("sender", sender.toLowerCase());
+      
+      if (!pref) {
+        console.log(`No preference found for ${sender}`);
+        await db.close();
+        return;
+      }
+      
+      await preferenceRepo.archivePreference(pref.id, `User requested to forget ${sender}`);
+      
+      const embeddingProvider = new HeuristicEmbeddingProvider();
+      const memoryIndex = new SimpleMemoryIndex(db, embeddingProvider);
+      await memoryIndex.tombstoneByScope("sender", sender.toLowerCase());
+      
+      console.log(`Forgotten preferences for ${sender}`);
+      await db.close();
+    });
+
+  memoryCommand
+    .command("search")
+    .description("Search memory semantically")
+    .argument("<query>", "Search query")
+    .option("--limit <number>", "Maximum results", "8")
+    .option("--min-score <number>", "Minimum similarity score", "0.72")
+    .action(async (query, options) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      const dbPath = getDefaultDatabasePath(paths.root);
+      const db = await createDatabase(dbPath);
+      
+      const embeddingProvider = new HeuristicEmbeddingProvider();
+      const memoryIndex = new SimpleMemoryIndex(db, embeddingProvider);
+      
+      const results = await memoryIndex.search({
+        query,
+        limit: parseInt(options.limit),
+        minScore: parseFloat(options.minScore),
+      });
+      
+      console.log(`Found ${results.length} results:`);
+      console.log("=".repeat(80));
+      
+      for (const result of results) {
+        console.log(`\nScore: ${(result.score * 100).toFixed(1)}%`);
+        console.log(`Type: ${result.type}`);
+        if (result.title) console.log(`Title: ${result.title}`);
+        console.log(`Summary: ${result.summary}`);
+        if (result.sourceId) console.log(`Source ID: ${result.sourceId}`);
+      }
+      
+      await db.close();
     });
 
   await program.parseAsync(process.argv);

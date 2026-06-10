@@ -97,7 +97,7 @@ export interface AgentPlan {
 export interface InvestigationSuggestion {
   id: string;
   emailId: string;
-  trigger: "low_confidence" | "suspicious_link" | "preference_conflict";
+  trigger: "low_confidence" | "suspicious_link" | "preference_conflict" | "semantic_recall" | "style_recall";
   reason: string;
   suggestedTool: string;
   suggestedArgs: Record<string, unknown>;

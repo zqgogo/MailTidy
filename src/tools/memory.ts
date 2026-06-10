@@ -5,8 +5,7 @@
  * - `write_memory` 是高风险写操作；DecisionPolicy 必须在 beforeToolCall 钩点
  *   阻断，需要用户确认；同时受 perTask=5 频率限制（§2.9 工具表）。
  *
- * 数据形状参考 src/data/memory.ts 的 AgentMemory；写入不持久化，主循环在 turn
- * 结束 / SOP 收尾时由 CLI 层调 JsonMemoryStore.save 把整个 memory 落盘。
+ * Phase V2: 写入通过 PreferenceRepository 持久化到 SQLite，确保可审计。
  */
 
 import {
@@ -17,6 +16,8 @@ import {
   rememberSender,
 } from "../data/memory.js";
 import type { AnyToolDefinition } from "./base.js";
+import type { Database } from "../data/database.js";
+import { PreferenceRepository } from "../data/preferences.js";
 
 export interface RecallMemoryArgs {
   /** "sender" → 单个发件人偏好；"style" → 写作风格；"subscriptions" → 订阅历史。 */
@@ -37,7 +38,15 @@ export interface WriteMemoryArgs {
   learnedFrom: string;
 }
 
-export function createMemoryTools(memory: AgentMemory): AnyToolDefinition[] {
+export interface MemoryToolsOptions {
+  memory: AgentMemory;
+  db?: Database;
+  taskId?: string;
+}
+
+export function createMemoryTools(options: MemoryToolsOptions): AnyToolDefinition[] {
+  const { memory, db, taskId } = options;
+
   return [
     {
       name: "recall_memory",
@@ -96,10 +105,41 @@ export function createMemoryTools(memory: AgentMemory): AnyToolDefinition[] {
             ...emptyPreference(),
             ...existing,
             ...(args.value as Partial<SenderPreference>),
+            learnedFrom: args.learnedFrom,
+            learnedAt: new Date().toISOString(),
           };
-          rememberSender(memory, args.key, merged);
+          
+          rememberSender(memory, args.key, merged, `Learned from ${args.learnedFrom}`);
+
+          if (db) {
+            const preferenceRepo = new PreferenceRepository(db);
+            await preferenceRepo.upsertPreference({
+              scope: "sender",
+              key: args.key.toLowerCase(),
+              value: merged,
+              confidence: existing.importanceDelta ? Math.min(Math.abs(existing.importanceDelta) / 5, 0.9) : 0.5,
+              learnedFrom: args.learnedFrom,
+              learnedAt: new Date().toISOString(),
+              reason: `Learned from ${args.learnedFrom}`,
+              taskId,
+            });
+          }
         } else {
           memory.actionPreferences[args.key] = String(args.value);
+
+          if (db) {
+            const preferenceRepo = new PreferenceRepository(db);
+            await preferenceRepo.upsertPreference({
+              scope: "action",
+              key: args.key,
+              value: { importanceDelta: 0, ignoredCount: 0, preferredAction: String(args.value) },
+              confidence: 0.5,
+              learnedFrom: args.learnedFrom,
+              learnedAt: new Date().toISOString(),
+              reason: `Learned action preference from ${args.learnedFrom}`,
+              taskId,
+            });
+          }
         }
         return { ok: true, key: args.key };
       },

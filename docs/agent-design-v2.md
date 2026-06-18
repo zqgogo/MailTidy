@@ -221,9 +221,29 @@ interface EmbeddingProvider {
 ```typescript
 class BGEM3Embedding implements EmbeddingProvider {
   provider = "bge-m3";
-  model = "BAAI/bge-m3";
+  model = "Xenova/bge-m3";  // 使用 Xenova 优化版本
   dimensions = 1024;
 }
+```
+
+**特点**：
+- ✅ 基于 Xenova/transformers（纯 JavaScript/TypeScript）
+- ✅ 首次使用自动下载模型（约 1GB）
+- ✅ 懒加载，按需初始化
+- ✅ 支持进度回调
+
+**模型加载流程**：
+```text
+首次调用 embed()
+    │
+    ▼
+检查模型是否已加载
+    │
+    ▼
+未加载 → 下载模型（./models 目录）→ 初始化 pipeline
+    │
+    ▼
+生成向量嵌入
 ```
 
 后续允许替换：

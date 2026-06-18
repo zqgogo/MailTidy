@@ -1,42 +1,95 @@
 import type { EmbeddingProvider } from "./schemas.js";
+import { pipeline, env } from "@xenova/transformers";
 
 /**
  * BGE-M3 Embedding Provider
- * 参考：https://huggingface.co/BAAI/bge-m3
+ * 使用 Xenova/transformers 加载真正的 BGE-M3 模型
+ * 参考：https://huggingface.co/Xenova/bge-m3
  */
 export class BGEM3Embedding implements EmbeddingProvider {
   readonly provider = "bge-m3";
-  readonly model = "BAAI/bge-m3";
+  readonly model = "Xenova/bge-m3";
   readonly dimensions = 1024;
 
+  private embeddingPipeline: any = null;
+  private isInitializing = false;
+  private initializationPromise: Promise<void> | null = null;
+
+  constructor() {
+    // 设置模型缓存目录
+    env.cacheDir = "./models";
+  }
+
+  /**
+   * 初始化模型（懒加载）
+   */
+  private async initialize(): Promise<void> {
+    if (this.embeddingPipeline) return;
+    if (this.isInitializing) {
+      await this.initializationPromise;
+      return;
+    }
+
+    this.isInitializing = true;
+    this.initializationPromise = (async () => {
+      try {
+        console.log("[BGE-M3] Loading model... (首次运行会下载约 1GB 模型文件)");
+        this.embeddingPipeline = await pipeline(
+          "feature-extraction",
+          this.model,
+          {
+            progress_callback: (progress: number | undefined) => {
+              if (progress !== undefined && !isNaN(progress)) {
+                const percentage = Math.round(progress * 100);
+                if (percentage % 10 === 0) {
+                  console.log(`[BGE-M3] Loading model... ${percentage}%`);
+                }
+              }
+            },
+          }
+        );
+        console.log("[BGE-M3] Model loaded successfully");
+      } catch (error) {
+        console.error("[BGE-M3] Failed to load model:", error);
+        throw error;
+      } finally {
+        this.isInitializing = false;
+      }
+    })();
+
+    await this.initializationPromise;
+  }
+
+  /**
+   * 生成向量嵌入
+   */
   async embed(texts: string[]): Promise<number[][]> {
-    // TODO: 集成 BGE-M3 模型
-    // 当前使用启发式实现作为占位符
-    // 实际实现需要调用 Hugging Face 或本地模型
-    
-    return texts.map((text) => this.generateHeuristicEmbedding(text));
+    // 确保模型已初始化
+    await this.initialize();
+
+    // 处理空输入
+    if (texts.length === 0) {
+      return [];
+    }
+
+    // 使用 BGE-M3 的指令格式（可选但推荐）
+    const inputs = texts.map((text) => `Represent this sentence for searching relevant passages: ${text}`);
+
+    // 生成嵌入
+    const output = await this.embeddingPipeline(inputs, {
+      pooling: "mean",
+      normalize: true,
+    });
+
+    // 转换为数字数组
+    return output.tolist() as number[][];
   }
 
-  private generateHeuristicEmbedding(text: string): number[] {
-    const hash = this.stringHash(text);
-    const embedding: number[] = [];
-    
-    for (let i = 0; i < this.dimensions; i++) {
-      const seed = (hash * (i + 1) + i) % 10000;
-      embedding.push((seed / 10000 - 0.5) * 2);
-    }
-    
-    return embedding;
-  }
-
-  private stringHash(text: string): number {
-    let hash = 0;
-    for (let i = 0; i < text.length; i++) {
-      const char = text.charCodeAt(i);
-      hash = ((hash << 5) - hash) + char;
-      hash = hash & hash;
-    }
-    return Math.abs(hash);
+  /**
+   * 获取模型状态
+   */
+  isLoaded(): boolean {
+    return this.embeddingPipeline !== null;
   }
 }
 

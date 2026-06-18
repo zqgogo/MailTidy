@@ -52,6 +52,12 @@ async function testBGEM3() {
     const vec1 = embeddings[textIndex++];
     const vec2 = embeddings[textIndex++];
 
+    if (!vec1 || !vec2) {
+      console.log(`测试: ${testCase.name} - 跳过（嵌入为空）`);
+      console.log(`---\n`);
+      continue;
+    }
+
     const similarity = cosineSimilarity(vec1, vec2);
 
     console.log(`测试: ${testCase.name}`);
@@ -73,7 +79,7 @@ async function testBGEM3() {
   const batchEmbeddings = await provider.embed(batchTexts);
   console.log(`输入: ${batchTexts.length} 条文本`);
   console.log(`输出: ${batchEmbeddings.length} 个向量`);
-  console.log(`每个向量维度: ${batchEmbeddings[0].length}`);
+  console.log(`每个向量维度: ${batchEmbeddings[0]?.length ?? 0}`);
 }
 
 /**

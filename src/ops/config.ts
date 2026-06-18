@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-export type LLMProviderName = "heuristic" | "openai" | "anthropic";
+export type LLMProviderName = "heuristic" | "openai" | "anthropic" | "zhipu";
 
 export interface LLMConfig {
   provider: LLMProviderName;
@@ -124,8 +124,8 @@ export function resolveEmailConfig(config: MailTidyConfig, overrides: ConfigOver
 }
 
 export function parseLLMProvider(value: string): LLMProviderName {
-  if (value === "heuristic" || value === "openai" || value === "anthropic") return value;
-  throw new Error(`Invalid LLM provider "${value}". Expected heuristic, openai, or anthropic.`);
+  if (value === "heuristic" || value === "openai" || value === "anthropic" || value === "zhipu") return value;
+  throw new Error(`Invalid LLM provider "${value}". Expected heuristic, openai, anthropic, or zhipu.`);
 }
 
 export function parseEmailProvider(value: string): EmailProviderName {

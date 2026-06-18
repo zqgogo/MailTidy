@@ -24,6 +24,7 @@ import { AnthropicLLMClient } from "../integrations/llm/anthropic.js";
 import { FallbackLLMClient } from "../integrations/llm/fallback.js";
 import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
 import { OpenAILLMClient } from "../integrations/llm/openai.js";
+import { ZhipuLLMClient } from "../integrations/llm/zhipu.js";
 import type { LLMClient } from "../llm/client.js";
 import { LLMRouter } from "../llm/router.js";
 import { loadMailTidyConfig, resolveLLMConfig, type LLMProviderName } from "../ops/config.js";
@@ -650,9 +651,18 @@ async function runAgentCommand(
 function buildLLMClient(provider: LLMProviderName, modelId?: string): LLMClient {
   const heuristic = new HeuristicLLMClient();
   if (provider === "heuristic") return heuristic;
-  const primary = provider === "openai"
-    ? new OpenAILLMClient({ modelId })
-    : new AnthropicLLMClient({ modelId });
+  
+  let primary: LLMClient;
+  if (provider === "openai") {
+    primary = new OpenAILLMClient({ modelId });
+  } else if (provider === "anthropic") {
+    primary = new AnthropicLLMClient({ modelId });
+  } else if (provider === "zhipu") {
+    primary = new ZhipuLLMClient({ model: modelId });
+  } else {
+    primary = heuristic;
+  }
+  
   return new FallbackLLMClient({
     primary,
     fallback: heuristic,

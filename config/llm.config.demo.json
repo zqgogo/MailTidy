@@ -1,0 +1,73 @@
+{
+  "providers": {
+    "zhipu": {
+      "name": "zhipu_glm",
+      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "api_key": "YOUR_ZHIPU_API_KEY_HERE",
+      "api_mode": "chat_completions",
+      "models": [
+        {
+          "id": "glm-4.7-flash",
+          "name": "GLM-4.7-flash"
+        },
+        {
+          "id": "glm-4-plus",
+          "name": "GLM-4-Plus"
+        },
+        {
+          "id": "glm-4",
+          "name": "GLM-4"
+        }
+      ],
+      "default_model": "glm-4.7-flash",
+      "temperature": 0.2,
+      "max_tokens": 900
+    },
+    "openai": {
+      "name": "openai",
+      "base_url": "https://api.openai.com/v1",
+      "api_key": "YOUR_OPENAI_API_KEY_HERE",
+      "models": [
+        {
+          "id": "gpt-4o-mini",
+          "name": "GPT-4o Mini"
+        },
+        {
+          "id": "gpt-4o",
+          "name": "GPT-4o"
+        },
+        {
+          "id": "text-embedding-3-small",
+          "name": "Text Embedding 3 Small"
+        }
+      ],
+      "default_model": "gpt-4o-mini",
+      "temperature": 0.2,
+      "max_tokens": 900
+    },
+    "anthropic": {
+      "name": "anthropic",
+      "base_url": "https://api.anthropic.com/v1",
+      "api_key": "YOUR_ANTHROPIC_API_KEY_HERE",
+      "models": [
+        {
+          "id": "claude-3-5-sonnet-20240620",
+          "name": "Claude 3.5 Sonnet"
+        },
+        {
+          "id": "claude-3-opus-20240229",
+          "name": "Claude 3 Opus"
+        }
+      ],
+      "default_model": "claude-3-5-sonnet-20240620",
+      "temperature": 0.2,
+      "max_tokens": 900
+    }
+  },
+  "active_provider": "zhipu",
+  "embedding": {
+    "provider": "bge-m3",
+    "model": "Xenova/bge-m3",
+    "dimensions": 1024
+  }
+}

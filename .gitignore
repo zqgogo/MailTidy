@@ -1,5 +1,7 @@
 # Project runtime state
 .mailtidy/
+config/llm.config.json
+config/mailtidy.config.json
 
 # Node / TypeScript
 node_modules/

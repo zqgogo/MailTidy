@@ -873,3 +873,73 @@ for (const mem of memories) {
 | Preference | 用户偏好 |
 | Decision | 历史决策经验 |
 | Email Summary | 邮件摘要 |
+
+---
+
+# 21. 配置文件管理
+
+## 21.1 配置文件结构
+
+```text
+config/
+├── llm.config.json      # 正式配置（不上传）
+└── llm.config.demo.json # 配置样板（上传，包含占位符）
+```
+
+## 21.2 .gitignore 规则
+
+```text
+# .gitignore 中已包含以下规则：
+config/llm.config.json
+config/mailtidy.config.json
+```
+
+**正式配置文件永远不会被上传到代码仓库。**
+
+## 21.3 在新环境使用
+
+在新环境中部署时：
+
+```bash
+# 1. 克隆代码
+git clone <仓库地址>
+cd MailTidy
+
+# 2. 复制 demo 模板为正式配置
+cp config/llm.config.demo.json config/llm.config.json
+
+# 3. 编辑配置文件，填入真实 API Key
+vim config/llm.config.json
+```
+
+## 21.4 配置文件格式
+
+```json
+{
+  "providers": {
+    "zhipu": {
+      "name": "zhipu_glm",
+      "base_url": "https://open.bigmodel.cn/api/coding/paas/v4",
+      "api_key": "YOUR_ZHIPU_API_KEY_HERE",
+      "models": [
+        { "id": "glm-4.7-flash", "name": "GLM-4.7-flash" }
+      ],
+      "default_model": "glm-4.7-flash",
+      "temperature": 0.2,
+      "max_tokens": 900
+    }
+  },
+  "active_provider": "zhipu",
+  "embedding": {
+    "provider": "bge-m3",
+    "model": "Xenova/bge-m3",
+    "dimensions": 1024
+  }
+}
+```
+
+## 21.5 API Key 安全
+
+- **本地开发**：直接写入 `config/llm.config.json`（已被 .gitignore 忽略）
+- **服务器部署**：推荐使用环境变量 `ZHIPU_API_KEY`
+- **敏感操作**：确保配置文件权限为 `600`（仅自己可读）

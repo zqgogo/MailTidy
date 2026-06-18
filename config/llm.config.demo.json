@@ -35,10 +35,6 @@
         {
           "id": "gpt-4o",
           "name": "GPT-4o"
-        },
-        {
-          "id": "text-embedding-3-small",
-          "name": "Text Embedding 3 Small"
         }
       ],
       "default_model": "gpt-4o-mini",

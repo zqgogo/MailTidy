@@ -21,8 +21,8 @@ const judgment: EmailJudgment = {
 };
 
 describe("deep think investigation triggers", () => {
-  it("suggests original-record lookup for low-confidence classifications", () => {
-    const suggestions = suggestInvestigations([message], [judgment]);
+  it("suggests original-record lookup for low-confidence classifications", async () => {
+    const suggestions = await suggestInvestigations([message], [judgment]);
 
     expect(suggestions).toContainEqual(expect.objectContaining({
       emailId: "m-risk",
@@ -31,8 +31,8 @@ describe("deep think investigation triggers", () => {
     }));
   });
 
-  it("prioritizes domain verification for suspicious links", () => {
-    const suggestions = suggestInvestigations([message], [judgment]);
+  it("prioritizes domain verification for suspicious links", async () => {
+    const suggestions = await suggestInvestigations([message], [judgment]);
 
     expect(suggestions[0]).toMatchObject({
       trigger: "suspicious_link",
@@ -42,15 +42,16 @@ describe("deep think investigation triggers", () => {
     });
   });
 
-  it("suggests memory recall when current judgment conflicts with sender preference", () => {
+  it("suggests memory recall when current judgment conflicts with sender preference", async () => {
     const memory = emptyMemory();
     memory.senderPreferences[message.sender] = {
       category: Category.IMPORTANT,
       importanceDelta: 1,
+      ignoredCount: 0,
       learnedFrom: "test",
     };
 
-    const suggestions = suggestInvestigations([message], [judgment], memory);
+    const suggestions = await suggestInvestigations([message], [judgment], memory);
 
     expect(suggestions).toContainEqual(expect.objectContaining({
       trigger: "preference_conflict",

@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "provider": "heuristic"
+  },
+  "email": {
+    "provider": "imap",
+    "imap": {
+      "host": "imap.yourcompany.com",
+      "port": 993,
+      "secure": true,
+      "user": "your_name@yourcompany.com",
+      "password": "YOUR_PASSWORD_OR_AUTH_CODE"
+    }
+  },
+  "dryRun": true
+}

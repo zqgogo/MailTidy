@@ -1,0 +1,13 @@
+{
+  "llm": {
+    "provider": "heuristic"
+  },
+  "email": {
+    "provider": "gmail",
+    "gmail": {
+      "credentialsPath": ".mailtidy/credentials.json",
+      "tokenPath": ".mailtidy/token.json"
+    }
+  },
+  "dryRun": true
+}

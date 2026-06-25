@@ -120,6 +120,7 @@ export function resolveEmailConfig(config: MailTidyConfig, overrides: ConfigOver
     provider,
     gmail: config.email.gmail,
     outlook: config.email.outlook,
+    imap: config.email.imap,
   };
 }
 
@@ -129,8 +130,8 @@ export function parseLLMProvider(value: string): LLMProviderName {
 }
 
 export function parseEmailProvider(value: string): EmailProviderName {
-  if (value === "mock" || value === "gmail" || value === "outlook") return value;
-  throw new Error(`Invalid email provider "${value}". Expected mock, gmail, or outlook.`);
+  if (value === "mock" || value === "gmail" || value === "outlook" || value === "imap") return value;
+  throw new Error(`Invalid email provider "${value}". Expected mock, gmail, outlook, or imap.`);
 }
 
 export function parseEmbeddingProvider(value: string): EmbeddingProviderName {
@@ -166,6 +167,7 @@ function normalizeConfig(input: Partial<MailTidyConfig>): MailTidyConfig {
       provider: input.email?.provider ? parseEmailProvider(input.email.provider) : defaultConfig.email.provider,
       gmail: input.email?.gmail,
       outlook: input.email?.outlook,
+      imap: input.email?.imap,
     },
     embedding: {
       provider: input.embedding?.provider ? parseEmbeddingProvider(input.embedding.provider) : defaultConfig.embedding!.provider,

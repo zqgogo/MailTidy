@@ -1,0 +1,16 @@
+{
+  "llm": {
+    "provider": "heuristic"
+  },
+  "email": {
+    "provider": "imap",
+    "imap": {
+      "host": "imap.qq.com",
+      "port": 993,
+      "secure": true,
+      "user": "your_qq_number@qq.com",
+      "password": "YOUR_AUTH_CODE"
+    }
+  },
+  "dryRun": true
+}

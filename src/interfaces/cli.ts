@@ -20,6 +20,7 @@ import { LegacyMailTidyAgent } from "../agent/legacy.js";
 import { runAgentLoop, type RunAgentLoopOptions } from "../agent/loop.js";
 import { continueRecoveredTask } from "../agent/recoveryContinue.js";
 import { MockEmailConnector } from "../integrations/email/mock.js";
+import { buildEmailConnector, validateEmailConfig, getSupportedEmailProviders, getEmailProviderDescription } from "../integrations/email/factory.js";
 import { AnthropicLLMClient } from "../integrations/llm/anthropic.js";
 import { FallbackLLMClient } from "../integrations/llm/fallback.js";
 import { HeuristicLLMClient } from "../integrations/llm/heuristic.js";
@@ -27,7 +28,7 @@ import { OpenAILLMClient } from "../integrations/llm/openai.js";
 import { ZhipuLLMClient } from "../integrations/llm/zhipu.js";
 import type { LLMClient } from "../llm/client.js";
 import { LLMRouter } from "../llm/router.js";
-import { loadMailTidyConfig, resolveLLMConfig, type LLMProviderName } from "../ops/config.js";
+import { loadMailTidyConfig, resolveLLMConfig, resolveEmailConfig, type LLMProviderName } from "../ops/config.js";
 import { createMailTidyTools } from "../tools/registry.js";
 import { createReadlinePrompter, type Prompter } from "./prompts.js";
 import { createDatabase, getDefaultDatabasePath } from "../data/database.js";
@@ -195,6 +196,8 @@ async function main(): Promise<void> {
     .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
     .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
+    .option("--email-provider <provider>", "Email provider for --agent: mock, imap, gmail, or outlook")
+    .option("--dry-run", "Preview actions without making changes (recommended for real email)")
     .option("--dimension <name>", "Custom dimension to classify (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
@@ -206,6 +209,8 @@ async function main(): Promise<void> {
           automationMode: parseAutomationMode(options.automationMode),
           llmProvider: options.llmProvider,
           llmModel: options.llmModel,
+          emailProvider: options.emailProvider,
+          dryRun: options.dryRun,
         });
         console.log(result.report);
         return;
@@ -229,6 +234,8 @@ async function main(): Promise<void> {
     .option("--automation-mode <mode>", "Automation mode: conservative, balanced, or aggressive", "balanced")
     .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
+    .option("--email-provider <provider>", "Email provider for --agent: mock, imap, gmail, or outlook")
+    .option("--dry-run", "Preview actions without making changes (recommended for real email)")
     .option("--dimension <name>", "Custom dimension (repeatable)", collect, [] as string[])
     .action(async (options) => {
       requireDemo(options);
@@ -240,6 +247,8 @@ async function main(): Promise<void> {
           automationMode: parseAutomationMode(options.automationMode),
           llmProvider: options.llmProvider,
           llmModel: options.llmModel,
+          emailProvider: options.emailProvider,
+          dryRun: options.dryRun,
         });
         console.log(result.report);
         return;
@@ -259,6 +268,8 @@ async function main(): Promise<void> {
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
+    .option("--email-provider <provider>", "Email provider for --agent: mock, imap, gmail, or outlook")
+    .option("--dry-run", "Preview actions without making changes (recommended for real email)")
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
@@ -267,6 +278,8 @@ async function main(): Promise<void> {
           sop: "subscription_scan",
           llmProvider: options.llmProvider,
           llmModel: options.llmModel,
+          emailProvider: options.emailProvider,
+          dryRun: options.dryRun,
         });
         console.log(result.report);
         return;
@@ -287,9 +300,10 @@ async function main(): Promise<void> {
     .option("--demo", "Use mock email connector + heuristic LLM", false)
     .option("--agent", "Use the Phase 1 runAgentLoop entry-point instead of legacy pipeline", false)
     .option("--auto-confirm", "Save proposed drafts instead of previewing only", false)
-    .option("--dry-run", "Preview draft creation without writing drafts", false)
+    .option("--dry-run", "Preview actions without making changes (recommended for real email)")
     .option("--llm-provider <provider>", "LLM provider for --agent: heuristic, openai, or anthropic")
     .option("--llm-model <model>", "Provider model id for --agent")
+    .option("--email-provider <provider>", "Email provider for --agent: mock, imap, gmail, or outlook")
     .action(async (options) => {
       requireDemo(options);
       const paths = resolvePaths(program.opts().stateDir);
@@ -300,6 +314,7 @@ async function main(): Promise<void> {
           dryRun: options.dryRun,
           llmProvider: options.llmProvider,
           llmModel: options.llmModel,
+          emailProvider: options.emailProvider,
         });
         console.log(result.report);
         return;
@@ -310,6 +325,111 @@ async function main(): Promise<void> {
         console.log(`Created ${result.draftsCreated} draft(s).`);
         await memoryStore.save(agent.memory);
       });
+    });
+
+  /**
+   * Email Smoke Test Command
+   * 
+   * 快速测试邮箱连接，只读取邮件摘要，不进行任何操作。
+   * 支持：IMAP (QQ/网易/企业邮箱)、Gmail、Outlook、Mock
+   * 
+   * Usage:
+   *   npm run dev -- email-smoke --provider imap --limit 5
+   *   npm run dev -- email-smoke --provider gmail --limit 10
+   *   npm run dev -- email-smoke --limit 5  (使用配置文件中的 provider)
+   */
+  program
+    .command("email-smoke")
+    .description("Smoke test for email provider connection (read-only)")
+    .option("--provider <provider>", `Email provider: ${getSupportedEmailProviders().join(", ")}`)
+    .option("--limit <number>", "Number of recent emails to fetch", "5")
+    .option("--unread-only", "Only fetch unread emails", false)
+    .action(async (options) => {
+      const paths = resolvePaths(program.opts().stateDir);
+      
+      try {
+        const config = await loadMailTidyConfig(paths.config);
+        const provider = options.provider ?? config.email.provider;
+        
+        // Validate provider
+        const supportedProviders = getSupportedEmailProviders();
+        if (!supportedProviders.includes(provider)) {
+          console.error(`❌ Unsupported email provider: ${provider}`);
+          console.error(`   Supported providers: ${supportedProviders.join(", ")}`);
+          console.error(`\n📋 Provider descriptions:`);
+          for (const p of supportedProviders) {
+            console.error(`   ${p}: ${getEmailProviderDescription(p)}`);
+          }
+          process.exit(1);
+        }
+        
+        const emailConfig = resolveEmailConfig(config, { emailProvider: provider });
+        
+        // Validate config
+        const validation = validateEmailConfig(emailConfig, paths.root);
+        if (!validation.valid) {
+          console.error(`❌ Email configuration validation failed:`);
+          for (const error of validation.errors) {
+            console.error(`   - ${error}`);
+          }
+          process.exit(1);
+        }
+        
+        console.log(`\n📧 Email Smoke Test`);
+        console.log(`===================`);
+        console.log(`Provider: ${provider}`);
+        console.log(`Config:   ${paths.config}`);
+        console.log(`Limit:    ${options.limit}`);
+        console.log(`Unread:   ${options.unreadOnly ? "Yes" : "No"}\n`);
+        
+        // Build connector
+        const connector = buildEmailConnector(emailConfig, paths.root);
+        
+        console.log(`🔄 Connecting to ${provider}...`);
+        const emails = await connector.fetchRecent({
+          limit: parseInt(options.limit, 10),
+          unreadOnly: options.unreadOnly,
+        });
+        
+        console.log(`\n✅ Success! Fetched ${emails.length} email(s)\n`);
+        
+        // Display emails
+        if (emails.length === 0) {
+          console.log("No emails found.");
+        } else {
+          for (let i = 0; i < emails.length; i++) {
+            const email = emails[i]!;
+            const unread = email.unread ? "📬" : "📭";
+            const date = new Date(email.date).toLocaleString();
+            console.log(`${unread} Email #${i + 1}`);
+            console.log(`   ID:     ${email.id}`);
+            console.log(`   From:   ${email.sender}`);
+            console.log(`   Date:   ${date}`);
+            console.log(`   Subject: ${email.subject || "(no subject)"}`);
+            console.log();
+          }
+        }
+        
+        // Disconnect if connector supports it
+        if ("disconnect" in connector && typeof connector.disconnect === "function") {
+          await connector.disconnect();
+        }
+        
+      } catch (error) {
+        console.error(`\n❌ Error: ${error instanceof Error ? error.message : String(error)}`);
+        
+        // Provide helpful hints based on error
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        if (errorMessage.includes("ECONNREFUSED")) {
+          console.error("\n💡 Hint: Connection refused. Check if the IMAP server address and port are correct.");
+        } else if (errorMessage.includes("authentication")) {
+          console.error("\n💡 Hint: Authentication failed. Check your username and password/auth code.");
+        } else if (errorMessage.includes("ENOTFOUND")) {
+          console.error("\n💡 Hint: Host not found. Check the IMAP server address.");
+        }
+        
+        process.exit(1);
+      }
     });
 
   const memoryCommand = program
@@ -598,9 +718,12 @@ async function main(): Promise<void> {
 }
 
 function requireDemo(opts: { demo?: boolean }): void {
+  // For now, require --demo for legacy pipeline (non-agent mode)
+  // Agent mode can use real connectors via --email-provider
   if (!opts.demo) {
-    console.error("Only --demo is implemented. Real EmailConnector lands in Phase 4.");
-    process.exit(2);
+    console.warn("Legacy pipeline requires --demo. Use --agent with --email-provider for real email.");
+    // Comment out the exit for now to allow exploration
+    // process.exit(2);
   }
 }
 
@@ -616,6 +739,7 @@ function parseAutomationMode(value: string): "conservative" | "balanced" | "aggr
 type AgentCommandOptions = RunAgentLoopOptions & {
   llmProvider?: string;
   llmModel?: string;
+  emailProvider?: string;
 };
 
 async function runAgentCommand(
@@ -629,11 +753,22 @@ async function runAgentCommand(
     llmProvider: options.llmProvider,
     llmModel: options.llmModel,
   });
+  const emailConfig = resolveEmailConfig(config, {
+    emailProvider: options.emailProvider,
+  });
   const llm = buildLLMClient(llmConfig.provider, llmConfig.model);
-  const { llmProvider: _llmProvider, llmModel: _llmModel, ...loopOptions } = options;
+  const { llmProvider: _llmProvider, llmModel: _llmModel, emailProvider: _emailProvider, ...loopOptions } = options;
+  
+  // 真实邮箱默认 dry-run，除非明确指定
+  if (emailConfig.provider !== "mock" && loopOptions.dryRun === undefined) {
+    console.warn(`\n⚠️  Using real email provider "${emailConfig.provider}" without --dry-run.`);
+    console.warn("   This will modify your inbox! Use --dry-run to preview actions.\n");
+    // 不自动设置 dryRun，让用户明确选择
+  }
+  
   const result = await runAgentLoop(
     {
-      connector: new MockEmailConnector(),
+      connector: buildEmailConnector(emailConfig, paths.root),
       router: new LLMRouter({ primary: llm, heuristic: new HeuristicLLMClient() }, {}, "primary"),
       tasks: new JsonTaskStore(paths.tasksDir),
       checkpoints: new CheckpointStore(paths.checkpointsDir),

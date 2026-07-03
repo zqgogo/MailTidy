@@ -18,12 +18,16 @@ export interface ImapConnectorConfig {
   secure?: boolean;
   user: string;
   password: string;
+  maxRetries?: number;
+  retryDelayMs?: number;
 }
 
 export class ImapConnector implements EmailConnector {
   private client: ImapFlow | null = null;
   private config: ImapConnectorConfig;
   private connected: boolean = false;
+  private maxRetries: number;
+  private retryDelayMs: number;
 
   constructor(config: ImapConnectorConfig) {
     this.config = {
@@ -33,6 +37,8 @@ export class ImapConnector implements EmailConnector {
       user: config.user,
       password: config.password,
     };
+    this.maxRetries = config.maxRetries ?? 3;
+    this.retryDelayMs = config.retryDelayMs ?? 1000;
   }
 
   private async connect(): Promise<ImapFlow> {
@@ -40,20 +46,45 @@ export class ImapConnector implements EmailConnector {
       return this.client;
     }
 
-    this.client = new ImapFlow({
-      host: this.config.host,
-      port: this.config.port as number,
-      secure: this.config.secure,
-      auth: {
-        user: this.config.user,
-        pass: this.config.password,
-      },
-      logger: false,
-    });
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= this.maxRetries; attempt++) {
+      try {
+        this.client = new ImapFlow({
+          host: this.config.host,
+          port: this.config.port as number,
+          secure: this.config.secure,
+          auth: {
+            user: this.config.user,
+            pass: this.config.password,
+          },
+          logger: false,
+        });
 
-    await this.client.connect();
-    this.connected = true;
-    return this.client;
+        await this.client.connect();
+        this.connected = true;
+        return this.client;
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt < this.maxRetries) {
+          console.warn(`IMAP connection attempt ${attempt}/${this.maxRetries} failed: ${lastError.message}`);
+          console.warn(`Retrying in ${this.retryDelayMs}ms...`);
+          await new Promise(resolve => setTimeout(resolve, this.retryDelayMs));
+        }
+      } finally {
+        if (!this.connected && this.client) {
+          try {
+            await this.client.logout();
+          } catch {
+            // Ignore logout error
+          }
+          this.client = null;
+        }
+      }
+    }
+
+    throw lastError ?? new Error("IMAP connection failed");
   }
 
   async fetchRecent(options: FetchRecentOptions = {}): Promise<EmailMessage[]> {

@@ -30,4 +30,5 @@ export interface EmailConnector {
   star(emailIds: string[]): Promise<void>;
   markRead(emailIds: string[]): Promise<void>;
   saveDraft(emailId: string, body: string): Promise<void>;
+  disconnect?(): Promise<void>;
 }

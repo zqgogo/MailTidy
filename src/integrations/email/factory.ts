@@ -17,6 +17,7 @@ import { ImapConnector, type ImapConnectorConfig } from "./imap.js";
 import { GmailConnector } from "./gmail.js";
 import { OutlookConnector } from "./outlook.js";
 import type { EmailConfig } from "../../ops/config.js";
+import * as fs from "fs";
 
 export interface EmailConnectorOptions {
   stateDir?: string;
@@ -46,6 +47,25 @@ function validateImapConfig(config: EmailConfig): void {
 }
 
 /**
+ * 从环境变量获取 IMAP 配置
+ */
+function getImapConfigFromEnv(config: EmailConfig): EmailConfig {
+  const env = process.env;
+  
+  return {
+    ...config,
+    imap: {
+      ...config.imap,
+      host: (env.IMAP_HOST ?? config.imap?.host) || "",
+      port: env.IMAP_PORT ? parseInt(env.IMAP_PORT, 10) : config.imap?.port,
+      secure: env.IMAP_SECURE !== undefined ? env.IMAP_SECURE === "true" : config.imap?.secure,
+      user: (env.IMAP_USER ?? config.imap?.user) || "",
+      password: (env.IMAP_PASSWORD ?? env.IMAP_AUTH_CODE ?? config.imap?.password) || "",
+    },
+  };
+}
+
+/**
  * 验证 Gmail 配置完整性
  */
 function validateGmailConfig(config: EmailConfig, stateDir: string): void {
@@ -56,14 +76,15 @@ function validateGmailConfig(config: EmailConfig, stateDir: string): void {
   const credentialsPath = config.gmail.credentialsPath ?? `${stateDir}/credentials.json`;
   const tokenPath = config.gmail.tokenPath ?? `${stateDir}/token.json`;
   
-  // 检查 credentials 文件
-  // 注意：这里只检查路径是否存在，实际文件读取会在 connector 初始化时进行
-  if (!config.gmail.credentialsPath) {
+  try {
+    fs.accessSync(credentialsPath);
+  } catch {
     throw new Error(`Gmail credentials file not found at ${credentialsPath}. Please follow the setup instructions.`);
   }
   
-  // 检查 token 文件（可选，第一次需要 OAuth 流程）
-  if (!config.gmail.tokenPath) {
+  try {
+    fs.accessSync(tokenPath);
+  } catch {
     console.warn(`Gmail token file not found at ${tokenPath}. You will need to run 'gmail-auth' command first.`);
   }
 }
@@ -87,7 +108,9 @@ function validateOutlookConfig(config: EmailConfig, stateDir: string): void {
   }
   
   const tokenPath = config.outlook.tokenPath ?? `${stateDir}/outlook-token.json`;
-  if (!config.outlook.tokenPath) {
+  try {
+    fs.accessSync(tokenPath);
+  } catch {
     console.warn(`Outlook token file not found at ${tokenPath}. You will need to run 'outlook-auth' command first.`);
   }
 }
@@ -105,15 +128,17 @@ export function buildEmailConnector(config: EmailConfig, stateDir: string = ".ma
       return new MockEmailConnector();
     
     case "imap":
-      validateImapConfig(config);
-      const imapConfig: ImapConnectorConfig = {
-        host: config.imap!.host,
-        port: config.imap!.port ?? 993,
-        secure: config.imap!.secure ?? true,
-        user: config.imap!.user,
-        password: config.imap!.password,
-      };
-      return new ImapConnector(imapConfig);
+      const imapConfig = getImapConfigFromEnv(config);
+      validateImapConfig(imapConfig);
+      return new ImapConnector({
+        host: imapConfig.imap!.host,
+        port: imapConfig.imap!.port ?? 993,
+        secure: imapConfig.imap!.secure ?? true,
+        user: imapConfig.imap!.user,
+        password: imapConfig.imap!.password,
+        maxRetries: 3,
+        retryDelayMs: 2000,
+      });
     
     case "gmail":
       validateGmailConfig(config, stateDir);
@@ -148,10 +173,10 @@ export function validateEmailConfig(config: EmailConfig, stateDir: string = ".ma
   try {
     switch (config.provider) {
       case "mock":
-        // Mock 不需要额外配置
         break;
       case "imap":
-        validateImapConfig(config);
+        const imapConfig = getImapConfigFromEnv(config);
+        validateImapConfig(imapConfig);
         break;
       case "gmail":
         validateGmailConfig(config, stateDir);
